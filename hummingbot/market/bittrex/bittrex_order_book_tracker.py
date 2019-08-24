@@ -141,7 +141,6 @@ class BittrexOrderBookTracker(OrderBookTracker):
         order_book: BittrexOrderBook = self._order_books[symbol]
 
     async def start(self):
-        print(60)
         self._order_book_diff_listener_task = asyncio.ensure_future(
             self.data_source.listen_for_order_book_diffs(self._ev_loop, self._order_book_diff_stream)
         )
