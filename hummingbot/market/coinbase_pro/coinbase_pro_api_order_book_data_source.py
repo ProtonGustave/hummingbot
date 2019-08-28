@@ -4,13 +4,7 @@ import asyncio
 import aiohttp
 import logging
 import pandas as pd
-from typing import (
-    Any,
-    AsyncIterable,
-    Dict,
-    List,
-    Optional,
-)
+from typing import Any, AsyncIterable, Dict, List, Optional
 import time
 import ujson
 import websockets
@@ -21,10 +15,7 @@ from hummingbot.market.coinbase_pro.coinbase_pro_order_book import CoinbaseProOr
 from hummingbot.core.data_type.order_book_tracker_data_source import OrderBookTrackerDataSource
 from hummingbot.core.utils import async_ttl_cache
 from hummingbot.logger import HummingbotLogger
-from hummingbot.core.data_type.order_book_tracker_entry import (
-    CoinbaseProOrderBookTrackerEntry,
-    OrderBookTrackerEntry
-)
+from hummingbot.core.data_type.order_book_tracker_entry import CoinbaseProOrderBookTrackerEntry, OrderBookTrackerEntry
 from hummingbot.core.data_type.order_book_message import OrderBookMessage
 from hummingbot.market.coinbase_pro.coinbase_pro_active_order_tracker import CoinbaseProActiveOrderTracker
 
@@ -62,11 +53,14 @@ class CoinbaseProAPIOrderBookDataSource(OrderBookTrackerDataSource):
             async with client.get(f"{COINBASE_REST_URL}/products") as products_response:
                 products_response: aiohttp.ClientResponse = products_response
                 if products_response.status != 200:
-                    raise IOError(f"Error fetching active Coinbase Pro markets. HTTP status is {products_response.status}.")
+                    raise IOError(
+                        f"Error fetching active Coinbase Pro markets. HTTP status is {products_response.status}."
+                    )
                 data = await products_response.json()
                 all_markets: pd.DataFrame = pd.DataFrame.from_records(data=data, index="id")
-                all_markets.rename({"base_currency": "baseAsset", "quote_currency": "quoteAsset"},
-                                   axis="columns", inplace=True)
+                all_markets.rename(
+                    {"base_currency": "baseAsset", "quote_currency": "quoteAsset"}, axis="columns", inplace=True
+                )
                 ids: List[str] = list(all_markets.index)
                 volumes: List[float] = []
                 prices: List[float] = []
@@ -84,8 +78,10 @@ class CoinbaseProAPIOrderBookDataSource(OrderBookTrackerDataSource):
                                 volumes.append(float(data.get("volume", NaN)))
                                 prices.append(float(data.get("price", NaN)))
                             elif ticker_response.status != 429 or retry_counter == MAX_RETRIES:
-                                raise IOError(f"Error fetching ticker for {product_id} on Coinbase Pro. "
-                                              f"HTTP status is {ticker_response.status}.")
+                                raise IOError(
+                                    f"Error fetching ticker for {product_id} on Coinbase Pro. "
+                                    f"HTTP status is {ticker_response.status}."
+                                )
                             await asyncio.sleep(0.5)
                 all_markets["volume"] = volumes
                 all_markets["price"] = prices
@@ -130,7 +126,7 @@ class CoinbaseProAPIOrderBookDataSource(OrderBookTrackerDataSource):
                 self.logger().network(
                     f"Error getting active exchange information.",
                     exc_info=True,
-                    app_warning_msg=f"Error getting active exchange information. Check network connection."
+                    app_warning_msg=f"Error getting active exchange information. Check network connection.",
                 )
         return self._symbols
 
@@ -144,8 +140,10 @@ class CoinbaseProAPIOrderBookDataSource(OrderBookTrackerDataSource):
         async with client.get(product_order_book_url) as response:
             response: aiohttp.ClientResponse = response
             if response.status != 200:
-                raise IOError(f"Error fetching Coinbase Pro market snapshot for {trading_pair}. "
-                              f"HTTP status is {response.status}.")
+                raise IOError(
+                    f"Error fetching Coinbase Pro market snapshot for {trading_pair}. "
+                    f"HTTP status is {response.status}."
+                )
             data: Dict[str, Any] = await response.json()
             return data
 
@@ -177,19 +175,17 @@ class CoinbaseProAPIOrderBookDataSource(OrderBookTrackerDataSource):
                     order_book.apply_snapshot(bids, asks, snapshot_msg.update_id)
 
                     retval[trading_pair] = CoinbaseProOrderBookTrackerEntry(
-                        trading_pair,
-                        snapshot_timestamp,
-                        order_book,
-                        active_order_tracker
+                        trading_pair, snapshot_timestamp, order_book, active_order_tracker
                     )
-                    self.logger().info(f"Initialized order book for {trading_pair}. "
-                                       f"{index+1}/{number_of_pairs} completed.")
+                    self.logger().info(
+                        f"Initialized order book for {trading_pair}. " f"{index+1}/{number_of_pairs} completed."
+                    )
                     await asyncio.sleep(0.6)
                 except IOError:
                     self.logger().network(
                         f"Error getting snapshot for {trading_pair}.",
                         exc_info=True,
-                        app_warning_msg=f"Error getting snapshot for {trading_pair}. Check network connection."
+                        app_warning_msg=f"Error getting snapshot for {trading_pair}. Check network connection.",
                     )
                 except Exception:
                     self.logger().error(f"Error initializing order book for {trading_pair}. ", exc_info=True)
@@ -241,7 +237,7 @@ class CoinbaseProAPIOrderBookDataSource(OrderBookTrackerDataSource):
                     subscribe_request: Dict[str, Any] = {
                         "type": "subscribe",
                         "product_ids": trading_pairs,
-                        "channels": ["full"]
+                        "channels": ["full"],
                     }
                     await ws.send(ujson.dumps(subscribe_request))
                     async for raw_msg in self._inner_messages(ws):
@@ -269,7 +265,7 @@ class CoinbaseProAPIOrderBookDataSource(OrderBookTrackerDataSource):
                     f"Unexpected error with WebSocket connection.",
                     exc_info=True,
                     app_warning_msg=f"Unexpected error with WebSocket connection. Retrying in 30 seconds. "
-                                    f"Check network connection."
+                    f"Check network connection.",
                 )
                 await asyncio.sleep(30.0)
 
@@ -304,7 +300,7 @@ class CoinbaseProAPIOrderBookDataSource(OrderBookTrackerDataSource):
                                 f"Unexpected error with WebSocket connection.",
                                 exc_info=True,
                                 app_warning_msg=f"Unexpected error with WebSocket connection. Retrying in 5 seconds. "
-                                                f"Check network connection."
+                                f"Check network connection.",
                             )
                             await asyncio.sleep(5.0)
                     this_hour: pd.Timestamp = pd.Timestamp.utcnow().replace(minute=0, second=0, microsecond=0)

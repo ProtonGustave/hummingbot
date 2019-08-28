@@ -8,11 +8,9 @@ from typing import Optional, Dict, List, Set, Deque
 from hummingbot.core.data_type.order_book_message import BittrexOrderBookMessage
 from hummingbot.core.data_type.order_book_tracker_entry import BittrexOrderBookTrackerEntry
 from hummingbot.logger import HummingbotLogger
-from hummingbot.core.data_type.order_book_tracker import (
-    OrderBookTracker,
-    OrderBookTrackerDataSourceType
-)
+from hummingbot.core.data_type.order_book_tracker import OrderBookTracker, OrderBookTrackerDataSourceType
 from hummingbot.core.data_type.order_book_tracker_data_source import OrderBookTrackerDataSource
+from hummingbot.market.bittrex.bittrex_active_order_tracker import BittrexActiveOrderTracker
 from hummingbot.market.bittrex.bittrex_api_order_book_data_source import BittrexAPIOrderBookDataSource
 from hummingbot.market.bittrex.bittrex_order_book import BittrexOrderBook
 
@@ -26,9 +24,11 @@ class BittrexOrderBookTracker(OrderBookTracker):
             cls._btobt_logger = logging.getLogger(__name__)
         return cls._btobt_logger
 
-    def __init__(self,
-                 data_source_type: OrderBookTrackerDataSourceType = OrderBookTrackerDataSourceType.EXCHANGE_API,
-                 symbols: Optional[List[str]] = None):
+    def __init__(
+        self,
+        data_source_type: OrderBookTrackerDataSourceType = OrderBookTrackerDataSourceType.EXCHANGE_API,
+        symbols: Optional[List[str]] = None,
+    ):
         super().__init__(data_source_type=data_source_type)
 
         self._ev_loop: asyncio.BaseEventLoop = asyncio.get_event_loop()
@@ -38,10 +38,9 @@ class BittrexOrderBookTracker(OrderBookTracker):
         self._process_msg_deque_task: Optional[asyncio.Task] = None
         self._past_diffs_windows: Dict[str, Deque] = {}
         self._order_books: Dict[str, BittrexOrderBook] = {}
-        self._saved_message_queues: Dict[str, Deque[BittrexOrderBookMessage]] = defaultdict(
-            lambda: deque(maxlen=1000))
+        self._saved_message_queues: Dict[str, Deque[BittrexOrderBookMessage]] = defaultdict(lambda: deque(maxlen=1000))
+        self._active_order_trackers: Dict[str, BittrexActiveOrderTracker] = defaultdict(BittrexActiveOrderTracker)
         self._symbols: Optional[List[str]] = symbols
-
 
     @property
     def data_source(self) -> OrderBookTrackerDataSource:
@@ -60,8 +59,9 @@ class BittrexOrderBookTracker(OrderBookTracker):
         """
         Starts tracking for any new trading pairs, and stop tracking for any inactive trading pairs.
         """
-        tracking_symbols: Set[str] = set([key for key in self._tracking_tasks.keys()
-                                          if not self._tracking_tasks[key].done()])
+        tracking_symbols: Set[str] = set(
+            [key for key in self._tracking_tasks.keys() if not self._tracking_tasks[key].done()]
+        )
         available_pairs: Dict[str, BittrexOrderBookTrackerEntry] = await self.data_source.get_tracking_pairs()
         available_symbols: Set[str] = set(available_pairs.keys())
         new_symbols: Set[str] = available_symbols - tracking_symbols
@@ -69,6 +69,7 @@ class BittrexOrderBookTracker(OrderBookTracker):
 
         for symbol in new_symbols:
             order_book_tracker_entry: BittrexOrderBookTrackerEntry = available_pairs[symbol]
+            self._active_order_trackers[symbol] = order_book_tracker_entry.active_order_tracker
             self._order_books[symbol] = order_book_tracker_entry.order_book
             self._tracking_message_queues[symbol] = asyncio.Queue()
             self._tracking_tasks[symbol] = asyncio.ensure_future(self._track_single_book(symbol))
@@ -112,10 +113,12 @@ class BittrexOrderBookTracker(OrderBookTracker):
                 # Log some statistics
                 now: float = time.time()
                 if int(now / 60.0) > int(last_message_timestamp / 60.0):
-                    self.logger().debug(f"Diff message processed: "
-                                        f"{message_accepted}, "
-                                        f"rejected: {message_rejected}, "
-                                        f"queued: {message_queue}")
+                    self.logger().debug(
+                        f"Diff message processed: "
+                        f"{message_accepted}, "
+                        f"rejected: {message_rejected}, "
+                        f"queued: {message_queue}"
+                    )
                     message_accepted = 0
                     message_rejected = 0
                     message_queue = 0
@@ -129,16 +132,13 @@ class BittrexOrderBookTracker(OrderBookTracker):
                 self.logger().network(
                     f"Unexpected error routing order book messages.",
                     exc_info=True,
-                    app_warning_msg=f"Unexpected error routing order book messages. Retrying after 5 seconds."
+                    app_warning_msg=f"Unexpected error routing order book messages. Retrying after 5 seconds.",
                 )
                 await asyncio.sleep(5.0)
 
     async def _track_single_book(self, symbol: str):
         past_diffs_window: Deque[BittrexOrderBookMessage] = deque()
         self._past_diffs_windows[symbol] = past_diffs_window
-
-        message_queue: asyncio.Queue = self._tracking_message_queues[symbol]
-        order_book: BittrexOrderBook = self._order_books[symbol]
 
     async def start(self):
         self._order_book_diff_listener_task = asyncio.ensure_future(
@@ -147,9 +147,7 @@ class BittrexOrderBookTracker(OrderBookTracker):
         self._order_book_snapshot_listener_task = asyncio.ensure_future(
             self.data_source.listen_for_order_book_snapshots(self._ev_loop, self._order_book_snapshot_stream)
         )
-        self._refresh_tracking_task = asyncio.ensure_future(
-            self._refresh_tracking_loop()
-        )
+        self._refresh_tracking_task = asyncio.ensure_future(self._refresh_tracking_loop())
         # self._order_book_diff_router_task = asyncio.ensure_future(
         #     self._order_book_diff_router()
         # )
@@ -157,7 +155,6 @@ class BittrexOrderBookTracker(OrderBookTracker):
         #     self._order_book_snapshot_router()
         # )
 
-        await asyncio.gather(self._order_book_snapshot_listener_task,
-                             self._order_book_diff_listener_task,
-                             self._refresh_tracking_task
-                            )
+        await asyncio.gather(
+            self._order_book_snapshot_listener_task, self._order_book_diff_listener_task, self._refresh_tracking_task
+        )
