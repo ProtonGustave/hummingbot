@@ -7,13 +7,7 @@ import logging
 import pandas as pd
 import re
 import time
-from typing import (
-    Dict,
-    Set,
-    Deque,
-    Optional,
-    Tuple,
-    List)
+from typing import Dict, Set, Deque, Optional, Tuple, List
 
 from hummingbot.core.event.events import OrderBookTradeEvent, TradeType
 from hummingbot.logger import HummingbotLogger
@@ -44,8 +38,7 @@ class OrderBookTracker(ABC):
             cls._obt_logger = logging.getLogger(__name__)
         return cls._obt_logger
 
-    def __init__(self,
-                 data_source_type: OrderBookTrackerDataSourceType = OrderBookTrackerDataSourceType.EXCHANGE_API):
+    def __init__(self, data_source_type: OrderBookTrackerDataSourceType = OrderBookTrackerDataSourceType.EXCHANGE_API):
         self._data_source_type: OrderBookTrackerDataSourceType = data_source_type
         self._tracking_tasks: Dict[str, asyncio.Task] = {}
         self._order_books: Dict[str, OrderBook] = {}
@@ -89,10 +82,7 @@ class OrderBookTracker(ABC):
 
     @property
     def snapshot(self) -> Dict[str, Tuple[pd.DataFrame, pd.DataFrame]]:
-        return {
-            symbol: order_book.snapshot
-            for symbol, order_book in self._order_books.items()
-        }
+        return {symbol: order_book.snapshot for symbol, order_book in self._order_books.items()}
 
     async def start(self):
         self._emit_trade_event_task = asyncio.ensure_future(
@@ -123,8 +113,9 @@ class OrderBookTracker(ABC):
         """
         Starts tracking for any new trading pairs, and stop tracking for any inactive trading pairs.
         """
-        tracking_symbols: Set[str] = set([key for key in self._tracking_tasks.keys()
-                                          if not self._tracking_tasks[key].done()])
+        tracking_symbols: Set[str] = set(
+            [key for key in self._tracking_tasks.keys() if not self._tracking_tasks[key].done()]
+        )
         available_pairs: Dict[str, OrderBookTrackerEntry] = await self.data_source.get_tracking_pairs()
         available_symbols: Set[str] = set(available_pairs.keys())
         new_symbols: Set[str] = available_symbols - tracking_symbols
@@ -186,9 +177,9 @@ class OrderBookTracker(ABC):
                 # Log some statistics.
                 now: float = time.time()
                 if int(now / 60.0) > int(last_message_timestamp / 60.0):
-                    self.logger().info("Diff messages processed: %d, rejected: %d",
-                                       messages_accepted,
-                                       messages_rejected)
+                    self.logger().info(
+                        "Diff messages processed: %d, rejected: %d", messages_accepted, messages_rejected
+                    )
                     messages_accepted = 0
                     messages_rejected = 0
 
@@ -214,7 +205,9 @@ class OrderBookTracker(ABC):
             except asyncio.CancelledError:
                 raise
             except Exception:
-                self.logger().error("Unknown error. Retrying after 5 seconds.", exc_info=True)
+                self.logger().error(
+                    "Unknown error obtaining snapshot messages. Retrying after 5 seconds.", exc_info=True
+                )
                 await asyncio.sleep(5.0)
 
     async def _track_single_book(self, symbol: str):
