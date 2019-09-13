@@ -3,6 +3,7 @@
 import os
 
 import logging as _logging
+
 _logger = _logging.getLogger(__name__)
 
 master_host = "***REMOVED***"
@@ -25,12 +26,7 @@ mysql_db = "***REMOVED***"
 order_book_db = "***REMOVED***"
 sparrow_db = "***REMOVED***"
 
-order_books_db_2 = {
-    "host": "***REMOVED***",
-    "user": "***REMOVED***",
-    "password": "***REMOVED***",
-    "db": "**REMOVED***",
-}
+order_books_db_2 = {"host": "***REMOVED***", "user": "***REMOVED***", "password": "***REMOVED***", "db": "**REMOVED***"}
 
 kafka_bootstrap_server = "***REMOVED***"
 
@@ -50,6 +46,10 @@ idex_api_key = os.getenv("IDEX_API_KEY")
 huobi_api_key = os.getenv("HUOBI_API_KEY")
 huobi_secret_key = os.getenv("HUOBI_SECRET_KEY")
 
+# Bittrex Tests
+bittrex_api_key = os.getenv("BITTREX_API_KEY")
+bittrex_secret_key = os.getenv("BITTREX_SECRET_KEY")
+
 test_web3_provider_list = [os.getenv("WEB3_PROVIDER")]
 
 # Wallet Tests
@@ -61,33 +61,30 @@ web3_test_private_key_c = "***REMOVED***"
 coinalpha_order_book_api_username = "***REMOVED***"
 coinalpha_order_book_api_password = "***REMOVED***"
 
-kafka_2 = {
-    "bootstrap_servers": "***REMOVED***",
-    "zookeeper_servers": "***REMOVED***"
-}
+kafka_2 = {"bootstrap_servers": "***REMOVED***", "zookeeper_servers": "***REMOVED***"}
 
 
 try:
-    from .config_local import *             # noqa: F401, F403
+    from .config_local import *  # noqa: F401, F403
 except ModuleNotFoundError:
     pass
 
 try:
-    from .web3_wallet_secret import *       # noqa: F401, F403
+    from .web3_wallet_secret import *  # noqa: F401, F403
 except ModuleNotFoundError:
     pass
 
 try:
-    from .binance_secret import *           # noqa: F401, F403
+    from .binance_secret import *  # noqa: F401, F403
 except ModuleNotFoundError:
     pass
 
 try:
-    from .coinbase_pro_secrets import *     # noqa: F401, F403
+    from .coinbase_pro_secrets import *  # noqa: F401, F403
 except ModuleNotFoundError:
     pass
 
 try:
-    from .huobi_secret import *
+    from .huobi_secret import *  # noqa: F401, F403
 except ModuleNotFoundError:
     pass
