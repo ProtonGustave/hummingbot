@@ -202,16 +202,26 @@ class BittrexOrderBookTracker(OrderBookTracker):
                 await asyncio.sleep(5.0)
 
     async def start(self):
+        await super().start()
         self._order_book_diff_listener_task = asyncio.ensure_future(
             self.data_source.listen_for_order_book_diffs(self._ev_loop, self._order_book_diff_stream)
         )
         self._order_book_snapshot_listener_task = asyncio.ensure_future(
             self.data_source.listen_for_order_book_snapshots(self._ev_loop, self._order_book_snapshot_stream)
         )
-        self._refresh_tracking_task = asyncio.ensure_future(self._refresh_tracking_loop())
-        self._order_book_diff_router_task = asyncio.ensure_future(self._order_book_diff_router())
-        self._order_book_snapshot_router_task = asyncio.ensure_future(self._order_book_snapshot_router())
-
-        await asyncio.gather(
-            self._order_book_snapshot_listener_task, self._order_book_diff_listener_task, self._refresh_tracking_task
+        self._refresh_tracking_task = asyncio.ensure_future(
+            self._refresh_tracking_loop()
         )
+        self._order_book_diff_router_task = asyncio.ensure_future(
+            self._order_book_diff_router()
+        )
+        self._order_book_snapshot_router_task = asyncio.ensure_future(
+            self._order_book_snapshot_router()
+        )
+
+        # await asyncio.gather(self._order_book_snapshot_listener_task,
+        #                      self._order_book_diff_listener_task,
+        #                      self._refresh_tracking_task,
+        #                      self._order_book_diff_router_task,
+        #                      self._order_book_snapshot_router_task
+        # )
