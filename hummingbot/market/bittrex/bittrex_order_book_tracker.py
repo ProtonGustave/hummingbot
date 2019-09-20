@@ -209,6 +209,9 @@ class BittrexOrderBookTracker(OrderBookTracker):
         self._order_book_snapshot_listener_task = asyncio.ensure_future(
             self.data_source.listen_for_order_book_snapshots(self._ev_loop, self._order_book_snapshot_stream)
         )
+        self._order_book_trade_listener_task = asyncio.ensure_future(
+            self.data_source.listen_for_trades(self._ev_loop, self._order_book_trade_stream)
+        )
         self._refresh_tracking_task = asyncio.ensure_future(
             self._refresh_tracking_loop()
         )
@@ -218,10 +221,3 @@ class BittrexOrderBookTracker(OrderBookTracker):
         self._order_book_snapshot_router_task = asyncio.ensure_future(
             self._order_book_snapshot_router()
         )
-
-        # await asyncio.gather(self._order_book_snapshot_listener_task,
-        #                      self._order_book_diff_listener_task,
-        #                      self._refresh_tracking_task,
-        #                      self._order_book_diff_router_task,
-        #                      self._order_book_snapshot_router_task
-        # )
