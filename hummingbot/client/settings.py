@@ -31,6 +31,7 @@ EXCHANGES = {
     "huobi",
     "idex",
     "radar_relay",
+    "stablecoinswap"
 }
 
 DEXES = {
@@ -38,6 +39,7 @@ DEXES = {
     "ddex",
     "idex",
     "radar_relay",
+    "stablecoinswap"
 }
 
 STRATEGIES = {
@@ -56,7 +58,8 @@ EXAMPLE_PAIRS = {
     "radar_relay": "ZRX-WETH",
     "bamboo_relay": "ZRX-WETH",
     "coinbase_pro": "ETH-USDC",
-    "huobi": "ethusdt"
+    "huobi": "ethusdt",
+    "stablecoinswap": "DAI-TUSD"
 }
 
 MAXIMUM_OUTPUT_PANE_LINE_COUNT = 1000

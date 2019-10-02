@@ -28,6 +28,7 @@ from hummingbot.market.paper_trade import create_paper_trade_market
 from hummingbot.market.radar_relay.radar_relay_market import RadarRelayMarket
 from hummingbot.market.bamboo_relay.bamboo_relay_market import BambooRelayMarket
 from hummingbot.market.idex.idex_market import IDEXMarket
+from hummingbot.market.stablecoinswap.stablecoinswap_market import StablecoinswapMarket
 from hummingbot.model.sql_connection_manager import SQLConnectionManager
 
 from hummingbot.wallet.ethereum.ethereum_chain import EthereumChain
@@ -70,6 +71,7 @@ MARKET_CLASSES = {
     "huobi": HuobiMarket,
     "idex": IDEXMarket,
     "radar_relay": RadarRelayMarket,
+    "stablecoinswap": StablecoinswapMarket
 }
 
 
@@ -307,6 +309,11 @@ class HummingbotApplication(*commands):
                                      order_book_tracker_data_source_type=OrderBookTrackerDataSourceType.EXCHANGE_API,
                                      symbols=symbols,
                                      trading_required=self._trading_required)
+            elif market_name == "stablecoinswap" and self.wallet:
+                market = StablecoinswapMarket(wallet=self.wallet,
+                                              ethereum_rpc_url=ethereum_rpc_url,
+                                              symbols=symbols,
+                                              trading_required=self._trading_required)
             else:
                 raise ValueError(f"Market name {market_name} is invalid.")
 
