@@ -241,6 +241,71 @@ cdef class StablecoinswapMarket(MarketBase):
     cdef double c_get_available_balance(self, str currency) except? -1:
         return float(self._account_balances.get(currency, 0.0))
 
+    cdef double c_get_price(self, str symbol, bint is_buy) except? -1:
+        cdef:
+            OrderBook order_book = self.c_get_order_book(symbol)
+
+        return order_book.c_get_price(is_buy)
+
+    cdef OrderBook c_get_order_book(self, str symbol):
+        cdef:
+            dict order_books = self._order_book_tracker.order_books
+
+        if symbol not in order_books:
+            raise ValueError(f"No order book exists for '{symbol}'.")
+        return order_books[symbol]
+
+    cdef object c_get_order_price_quantum(self, str symbol, object price):
+        """
+        *required
+        Get the minimum increment interval for price
+        :return: Min order price increment in Decimal format
+        """
+        cdef:
+            quote_asset = symbol.split("_")[0]
+            quote_asset_decimals = self._assets_info[quote_asset]["decimals"]
+            # TODO: fetch assets info and return decimals here
+        decimals_quantum = Decimal(f"1e-{quote_asset_decimals}")
+        return decimals_quantum
+
+    cdef object c_get_order_size_quantum(self, str symbol, object amount):
+        """
+        *required
+        Get the minimum increment interval for order size (e.g. 0.01 USD)
+        :return: Min order size increment in Decimal format
+        """
+        # TODO
+        cdef:
+            base_asset = symbol.split("_")[1]
+            base_asset_decimals = self._assets_info[base_asset]["decimals"]
+        decimals_quantum = Decimal(f"1e-{base_asset_decimals}")
+        return decimals_quantum
+
+    def quantize_order_amount(self, symbol: str, amount: Decimal, price: Decimal = s_decimal_0) -> Decimal:
+        # TODO
+        return self.c_quantize_order_amount(symbol, amount, price)
+
+    cdef object c_quantize_order_amount(self, str symbol, object amount, object price = s_decimal_0):
+        # TODO
+        """
+        *required
+        Check current order amount against trading rule, and correct any rule violations
+        :return: Valid order amount in Decimal format
+        """
+        quantized_amount = MarketBase.c_quantize_order_amount(self, symbol, amount)
+        base_asset, quote_asset = self.split_symbol(symbol)
+
+        # Check against MINIMUM_MAKER_ORDER_SIZE_ETH return 0 if less than minimum.
+        if base_asset == "ETH" and float(quantized_amount) < Decimal(self.MINIMUM_MAKER_ORDER_SIZE_ETH):
+            return s_decimal_0
+        elif quote_asset == "ETH":
+            # Price is not passed in for market orders so price needs to be checked via the order book
+            actual_price = Decimal(price or self.get_price(symbol, True))  # Since order side is unknown use higher price (buy)
+            amount_quote = quantized_amount * actual_price
+            if amount_quote < Decimal(self.MINIMUM_MAKER_ORDER_SIZE_ETH):
+                return s_decimal_0
+        return quantized_amount
+
     @staticmethod
     def split_symbol(symbol: str) -> Tuple[str, str]:
         try:
@@ -365,33 +430,6 @@ cdef class StablecoinswapMarket(MarketBase):
                                                          order_id,
                                                          order_type)
                                  )
-
-    def quantize_order_amount(self, symbol: str, amount: Decimal, price: Decimal = s_decimal_0) -> Decimal:
-        # TODO
-        return self.c_quantize_order_amount(symbol, amount, price)
-
-    cdef object c_quantize_order_amount(self, str symbol, object amount, object price = s_decimal_0):
-        quantized_amount = MarketBase.c_quantize_order_amount(self, symbol, amount)
-        base_asset, quote_asset = self.split_symbol(symbol)
-
-        # Check against MINIMUM_MAKER_ORDER_SIZE_ETH return 0 if less than minimum.
-        if base_asset == "ETH" and float(quantized_amount) < Decimal(self.MINIMUM_MAKER_ORDER_SIZE_ETH):
-            return s_decimal_0
-        elif quote_asset == "ETH":
-            # Price is not passed in for market orders so price needs to be checked via the order book
-            actual_price = Decimal(price or self.get_price(symbol, True))  # Since order side is unknown use higher price (buy)
-            amount_quote = quantized_amount * actual_price
-            if amount_quote < Decimal(self.MINIMUM_MAKER_ORDER_SIZE_ETH):
-                return s_decimal_0
-        return quantized_amount
-
-    cdef object c_get_order_size_quantum(self, str symbol, object amount):
-        # TODO
-        cdef:
-            base_asset = symbol.split("_")[1]
-            base_asset_decimals = self._assets_info[base_asset]["decimals"]
-        decimals_quantum = Decimal(f"1e-{base_asset_decimals}")
-        return decimals_quantum
 
     cdef c_start_tracking_order(self,
                                 str client_order_id,
