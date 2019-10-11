@@ -49,6 +49,10 @@ from hummingbot.logger import HummingbotLogger
 from hummingbot.market.stablecoinswap.stablecoinswap_order_book_tracker import StablecoinswapOrderBookTracker
 # TODO implement
 from hummingbot.market.stablecoinswap.stablecoinswap_in_flight_order cimport StablecoinswapInFlightOrder
+# TODO implement
+from hummingbot.market.stablecoinswap.stablecoinswap_api_order_book_data_source import StablecoinswapAPIOrderBookDataSource
+# TODO finish implementation
+from hummingbot.market.stablecoinswap.stablecoinswap_contracts import Stablecoin
 
 im_logger = None
 s_decimal_0 = Decimal(0)
@@ -76,6 +80,10 @@ cdef class StablecoinswapMarket(MarketBase):
     MARKET_BUY_ORDER_CREATED_EVENT_TAG = MarketEvent.BuyOrderCreated.value
     MARKET_SELL_ORDER_CREATED_EVENT_TAG = MarketEvent.SellOrderCreated.value
 
+    FEE_UPDATE_INTERVAL = 60
+    UPDATE_ASSETS_INFO_INTERVAL = 60 * 60
+    UPDATE_MARKET_ORDERS_INTERVAL = 10
+
     @classmethod
     def logger(cls) -> HummingbotLogger:
         global im_logger
@@ -96,13 +104,20 @@ cdef class StablecoinswapMarket(MarketBase):
         self._wallet = wallet
         self._w3 = Web3(Web3.HTTPProvider(ethereum_rpc_url))
         self._last_timestamp = 0
-        self._last_update_order_timestamp = 0
-        self._last_update_next_nonce_timestamp = 0
+        self._last_update_market_order_timestamp = 0
+        self._last_update_fee_timestamp = 0
+        self._last_update_asset_info_timestamp = 0
         self._poll_interval = poll_interval
+        self._poll_notifier = asyncio.Event()
         self._in_flight_orders = {}
-        # ?
-        self._next_nonce = None
         self._account_balances = {}
+        self._pending_approval_tx_hashes = set()
+        self._status_polling_task = None
+        self._order_tracker_task = None
+        self._approval_tx_polling_task = None
+        self._assets_info = {}
+        # TODO: should be Stablecoinswap contract address
+        self._wallet_spender_address = Web3.toChecksumAddress(ZERO_EX_ROPSTEN_ERC20_PROXY)
 
     @property
     def name(self) -> str:
@@ -114,11 +129,11 @@ cdef class StablecoinswapMarket(MarketBase):
 
     @property
     def status_dict(self) -> Dict[str, bool]:
-        # TODO: change it somehow
         return {
             "order_books_initialized": self._order_book_tracker.ready,
             "account_balance": len(self._account_balances) > 0 if self._trading_required else True,
-            "trading_rule_initialized": len(self._trading_rules) > 0 if self._trading_required else True
+            "asset_info": len(self._assets_info) > 0,
+            "token_approval": len(self._pending_approval_tx_hashes) == 0 if self._trading_required else True
         }
 
     def ready(self) -> bool:
@@ -138,19 +153,39 @@ cdef class StablecoinswapMarket(MarketBase):
         })
 
     async def get_active_exchange_markets(self) -> pd.DataFrame:
-        """
-        *required
-        Used by the discovery strategy to read order books of all actively trading markets,
-        and find opportunities to profit
-        """
-        # TODO
-        return await CoinbaseProAPIOrderBookDataSource.get_active_exchange_markets()
+        return await StablecoinswapAPIOrderBookDataSource.get_active_exchange_markets()
 
     def get_all_balances(self) -> Dict[str, float]:
         return self._account_balances.copy()
 
     def _update_balances(self):
         self._account_balances = self.wallet.get_all_balances()
+
+    async def _update_asset_info(self):
+        # TODO:
+        """
+        Asset info contains asset's address and decimals
+        {
+            "ETH": {
+            "decimals": 18,
+            "address": "0x0000000000000000000000000000000000000000",
+            "name": "Ether"
+            },
+            "REP": {
+            "decimals": 8,
+            "address": "0xc853ba17650d32daba343294998ea4e33e7a48b9",
+            "name": "Reputation"
+            },
+            ...
+        }
+        """
+        cdef:
+            double current_timestamp = self._current_timestamp
+
+        if current_timestamp - self._last_update_asset_info_timestamp > self.UPDATE_ASSETS_INFO_INTERVAL or len(self._assets_info) == 0:
+            currencies = await self.get_currencies()
+            self._assets_info = currencies
+            self._last_update_asset_info_timestamp = current_timestamp
 
     async def start_network(self):
         # TODO: test
@@ -184,7 +219,7 @@ cdef class StablecoinswapMarket(MarketBase):
         if self._wallet.network_status is not NetworkStatus.CONNECTED:
             return NetworkStatus.NOT_CONNECTED
 
-        # TODO: check if contract is tradable?
+        # TODO: add check "self.permissions["tradingAllowed"] = True"
 
     cdef c_tick(self, double timestamp):
         cdef:
@@ -215,16 +250,36 @@ cdef class StablecoinswapMarket(MarketBase):
 
         return TradeFee(percent=0.0, flat_fees=[("ETH", transaction_cost_eth)])
 
+    async def _approval_tx_polling_loop(self):
+        while len(self._pending_approval_tx_hashes) > 0:
+            try:
+                if len(self._pending_approval_tx_hashes) > 0:
+                    for tx_hash in list(self._pending_approval_tx_hashes):
+                        receipt = self._w3.eth.getTransactionReceipt(tx_hash)
+                        if receipt is not None:
+                            self._pending_approval_tx_hashes.remove(tx_hash)
+            except Exception:
+                self.logger().network(
+                    "Unexpected error while fetching approval transactions.",
+                    exc_info=True,
+                    app_warning_msg="Could not get token approval status. "
+                                    "Check Ethereum wallet and network connection."
+                )
+            finally:
+                await asyncio.sleep(1.0)
+
     async def _status_polling_loop(self):
         while True:
             try:
                 self._poll_notifier = asyncio.Event()
                 await self._poll_notifier.wait()
 
-                # TODO: add updates here
-                # await safe_gather(
-                #     self._update_market_order_status()
-                # )
+                self._update_balances()
+                await safe_gather(
+                    self._update_market_order_status()
+                    self._update_asset_info(),
+                    self._update_fee(),
+                )
             except asyncio.CancelledError:
                 raise
             except Exception:
@@ -234,6 +289,99 @@ cdef class StablecoinswapMarket(MarketBase):
                     app_warning_msg="Failed to fetch account updates on Stablecoinswap. Check network connection."
                 )
                 await asyncio.sleep(0.5)
+
+    async def _update_fee(self):
+        cdef:
+            double current_timestamp = self._current_timestamp
+
+        if current_timestamp - self._last_update_fee_timestamp <= self.FEE_UPDATE_INTERVAL:
+            return
+
+        # TODO
+        self._last_update_fee_timestamp = current_timestamp
+
+    async def _update_market_order_status(self):
+        cdef:
+            double current_timestamp = self._current_timestamp
+
+        if current_timestamp - self._last_update_market_order_timestamp <= self.UPDATE_MARKET_ORDERS_INTERVAL:
+            return
+
+        if len(self._in_flight_orders) > 0:
+            tracked_market_orders = list(self._in_flight_orders.values())
+            for tracked_market_order in tracked_market_orders:
+                receipt = self.get_tx_hash_receipt(tracked_market_order.tx_hash)
+
+                if receipt is None:
+                    continue
+
+                if receipt["status"] == 0:
+                    err_msg = (f"The market order {tracked_market_order.client_order_id}"
+                               f"has failed according to transaction hash {tracked_market_order.tx_hash}.")
+                    self.logger().network(err_msg, app_warning_msg=err_msg)
+                    self.c_trigger_event(
+                        self.MARKET_ORDER_FAILURE_EVENT_TAG,
+                        MarketOrderFailureEvent(self._current_timestamp,
+                                                tracked_market_order.client_order_id,
+                                                OrderType.MARKET)
+                    )
+                elif receipt["status"] == 1:
+                    gas_used = float(receipt.get("gasUsed", 0.0))
+                    self.c_trigger_event(
+                        self.MARKET_ORDER_FILLED_EVENT_TAG,
+                        OrderFilledEvent(
+                            self._current_timestamp,
+                            tracked_market_order.client_order_id,
+                            tracked_market_order.symbol,
+                            tracked_market_order.trade_type,
+                            OrderType.MARKET,
+                            tracked_market_order.price,
+                            tracked_market_order.amount,
+                            TradeFee(0.0, [("ETH", gas_used)])
+                        )
+                    )
+                    if tracked_market_order.trade_type is TradeType.BUY:
+                        self.logger().info(f"The market buy order "
+                                           f"{tracked_market_order.client_order_id} has completed according to "
+                                           f"transaction hash {tracked_market_order.tx_hash}.")
+                        self.c_trigger_event(self.MARKET_BUY_ORDER_COMPLETED_EVENT_TAG,
+                                             BuyOrderCompletedEvent(self._current_timestamp,
+                                                                    tracked_market_order.client_order_id,
+                                                                    tracked_market_order.base_asset,
+                                                                    tracked_market_order.quote_asset,
+                                                                    tracked_market_order.quote_asset,
+                                                                    float(tracked_market_order.amount),
+                                                                    float(tracked_market_order.executed_amount_quote),
+                                                                    float(tracked_market_order.gas_fee_amount),
+                                                                    OrderType.MARKET))
+                    else:
+                        self.logger().info(f"The market sell order "
+                                           f"{tracked_market_order.client_order_id} has completed according to "
+                                           f"transaction hash {tracked_market_order.tx_hash}.")
+                        self.c_trigger_event(self.MARKET_SELL_ORDER_COMPLETED_EVENT_TAG,
+                                             SellOrderCompletedEvent(self._current_timestamp,
+                                                                     tracked_market_order.client_order_id,
+                                                                     tracked_market_order.base_asset,
+                                                                     tracked_market_order.quote_asset,
+                                                                     tracked_market_order.quote_asset,
+                                                                     float(tracked_market_order.amount),
+                                                                     float(tracked_market_order.executed_amount_quote),
+                                                                     float(tracked_market_order.gas_fee_amount),
+                                                                     OrderType.MARKET))
+                else:
+                    err_msg = (f"Unrecognized transaction status for market order "
+                               f"{tracked_market_order.client_order_id}. Check transaction hash "
+                               f"{tracked_market_order.tx_hash} for more details.")
+                    self.logger().network(err_msg, app_warning_msg=err_msg)
+                    self.c_trigger_event(
+                        self.MARKET_ORDER_FAILURE_EVENT_TAG,
+                        MarketOrderFailureEvent(self._current_timestamp,
+                                                tracked_market_order.client_order_id,
+                                                OrderType.MARKET)
+                    )
+
+                self.c_stop_tracking_order(tracked_market_order.tx_hash)
+        self._last_update_market_order_timestamp = current_timestamp
 
     cdef double c_get_balance(self, str currency) except? -1:
         return float(self._account_balances.get(currency, 0.0))
@@ -256,15 +404,11 @@ cdef class StablecoinswapMarket(MarketBase):
         return order_books[symbol]
 
     cdef object c_get_order_price_quantum(self, str symbol, object price):
-        """
-        *required
-        Get the minimum increment interval for price
-        :return: Min order price increment in Decimal format
-        """
+        # TODO: test
         cdef:
-            quote_asset = symbol.split("_")[0]
+            quote_asset = self.split_symbol(symbol)[1]
             quote_asset_decimals = self._assets_info[quote_asset]["decimals"]
-            # TODO: fetch assets info and return decimals here
+
         decimals_quantum = Decimal(f"1e-{quote_asset_decimals}")
         return decimals_quantum
 
@@ -276,34 +420,15 @@ cdef class StablecoinswapMarket(MarketBase):
         """
         # TODO
         cdef:
-            base_asset = symbol.split("_")[1]
+            base_asset = self.split_symbol(symbol)[0]
             base_asset_decimals = self._assets_info[base_asset]["decimals"]
         decimals_quantum = Decimal(f"1e-{base_asset_decimals}")
         return decimals_quantum
 
-    def quantize_order_amount(self, symbol: str, amount: Decimal, price: Decimal = s_decimal_0) -> Decimal:
-        # TODO
-        return self.c_quantize_order_amount(symbol, amount, price)
-
     cdef object c_quantize_order_amount(self, str symbol, object amount, object price = s_decimal_0):
-        # TODO
-        """
-        *required
-        Check current order amount against trading rule, and correct any rule violations
-        :return: Valid order amount in Decimal format
-        """
         quantized_amount = MarketBase.c_quantize_order_amount(self, symbol, amount)
-        base_asset, quote_asset = self.split_symbol(symbol)
+        # TODO: check on fees?
 
-        # Check against MINIMUM_MAKER_ORDER_SIZE_ETH return 0 if less than minimum.
-        if base_asset == "ETH" and float(quantized_amount) < Decimal(self.MINIMUM_MAKER_ORDER_SIZE_ETH):
-            return s_decimal_0
-        elif quote_asset == "ETH":
-            # Price is not passed in for market orders so price needs to be checked via the order book
-            actual_price = Decimal(price or self.get_price(symbol, True))  # Since order side is unknown use higher price (buy)
-            amount_quote = quantized_amount * actual_price
-            if amount_quote < Decimal(self.MINIMUM_MAKER_ORDER_SIZE_ETH):
-                return s_decimal_0
         return quantized_amount
 
     @staticmethod
@@ -321,7 +446,7 @@ cdef class StablecoinswapMarket(MarketBase):
                    object price = s_decimal_0,
                    dict kwargs = {}):
 
-        # only market order could be implemented
+        # only market order can be implemented
         if order_type is not OrderType.MARKET:
             raise NotImplementedError
 
@@ -338,7 +463,7 @@ cdef class StablecoinswapMarket(MarketBase):
                           amount: Decimal,
                           order_type: OrderType,
                           price: Decimal) -> str:
-        # only market order could be implemented
+        # only market order can be implemented
         if order_type is not OrderType.MARKET:
             raise NotImplementedError
 
@@ -346,9 +471,11 @@ cdef class StablecoinswapMarket(MarketBase):
             object q_amt = self.c_quantize_order_amount(symbol, amount)
 
         try:
+            # TODO: place order with execute_transaction
+            # and pass tx_hash to tracking_order
+
             self.c_start_tracking_order(order_id, symbol, TradeType.BUY, q_amt, s_decimal_0)
 
-            # TODO: place order
             self.logger().info(f"Created market buy order for {q_amt} {symbol}.")
             self.c_trigger_event(self.MARKET_BUY_ORDER_CREATED_EVENT_TAG,
                                  BuyOrderCreatedEvent(
@@ -379,7 +506,7 @@ cdef class StablecoinswapMarket(MarketBase):
                     object price = s_decimal_0,
                     dict kwargs = {}):
 
-        # only market order could be implemented
+        # only market order can be implemented
         if order_type is not OrderType.MARKET:
             raise NotImplementedError
 
@@ -397,7 +524,7 @@ cdef class StablecoinswapMarket(MarketBase):
                            order_type: OrderType,
                            price: Decimal) -> str:
 
-        # only market order could be implemented
+        # only market order can be implemented
         if order_type is not OrderType.MARKET:
             raise NotImplementedError
 
@@ -405,9 +532,10 @@ cdef class StablecoinswapMarket(MarketBase):
             object q_amt = self.c_quantize_order_amount(symbol, amount)
 
         try:
+            # TODO: place order with execute_transaction
+            # and pass tx_hash to tracking_order
             self.c_start_tracking_order(order_id, symbol, TradeType.SELL, order_type, q_amt, s_decimal_0)
 
-            # TODO: place order
             self.logger().info(f"Created market sell order for {q_amt} {symbol}.")
             self.c_trigger_event(self.MARKET_SELL_ORDER_CREATED_EVENT_TAG,
                                  SellOrderCreatedEvent(
@@ -437,7 +565,8 @@ cdef class StablecoinswapMarket(MarketBase):
                                 object trade_type,
                                 object order_type,
                                 object amount,
-                                object price):
+                                object price,
+                                str tx_hash):
         self._in_flight_orders[client_order_id] = StablecoinswapInFlightOrder(
             client_order_id=client_order_id,
             exchange_order_id=None,
@@ -445,7 +574,8 @@ cdef class StablecoinswapMarket(MarketBase):
             order_type=order_type,
             trade_type=trade_type,
             price=price,
-            amount=amount
+            amount=amount,
+            tx_hash=tx_hash
         )
 
     cdef c_stop_tracking_order(self, str order_id):
