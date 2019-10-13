@@ -280,6 +280,11 @@ class HummingbotApplication(*commands):
                                           ethereum_rpc_url=ethereum_rpc_url,
                                           symbols=symbols,
                                           trading_required=self._trading_required)
+            elif market_name == "stablecoinswap" and self.wallet:
+                market = StablecoinswapMarket(wallet=self.wallet,
+                                          ethereum_rpc_url=ethereum_rpc_url,
+                                          symbols=symbols,
+                                          trading_required=self._trading_required)
 
             elif market_name == "bamboo_relay" and self.wallet:
                 use_coordinator = global_config_map.get("bamboo_relay_use_coordinator").value

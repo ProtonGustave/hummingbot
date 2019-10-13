@@ -109,4 +109,3 @@ class CoinbaseProOrderBookTrackerEntry(OrderBookTrackerEntry):
     @property
     def active_order_tracker(self) -> CoinbaseProActiveOrderTracker:
         return self._active_order_tracker
-

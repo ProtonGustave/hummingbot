@@ -7,6 +7,7 @@ from web3 import Web3
 from web3.contract import (
     Contract,
 )
+from decimal import Decimal
 
 ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
 DAI_ADDRESS = "0x89d24A6b4CcB1B6fAA2625fE562bDD9a23260359"
@@ -25,6 +26,8 @@ with open(os.path.join(os.path.dirname(__file__), 'price_oracle_abi.json')) as p
 
 
 class PriceOracle:
+    PRICE_MULTIPLIER = 1e8
+
     def __init__(self,
                  w3: Web3,
                  address: str = PRICE_ORACLE_ADDRESS):
@@ -47,8 +50,16 @@ class PriceOracle:
 
         return supported_tokens
 
+    def normalized_token_price(self, token_address) -> int:
+        return self._contract.functions.normalized_token_prices(token_address).call()
+
 
 class Stablecoinswap:
+    # constants from contract
+    FEE_MULTIPLIER: 1e5
+    EXCHANGE_RATE_MULTIPLIER: 1e22
+    TOKEN_PRICE_MULTIPLIER: 1e8
+
     def __init__(self,
                  w3: Web3,
                  address: str = STABLECOINSWAP_ADDRESS):
@@ -56,6 +67,40 @@ class Stablecoinswap:
         self._w3: Web3 = w3
         self._abi: List[any] = stl_abi
         self._contract: Contract = self._w3.eth.contract(address=self._address, abi=self._abi)
+
+    @staticmethod
+    def get_address_by_symbol(symbol):
+        symbol.upper()
+
+        if symbol is "DAI":
+            return DAI_ADDRESS
+        elif symbol is "TUSD":
+            return TUSD_ADDRESS
+        elif symbol is "USDC":
+            return USDC_ADDRESS
+        elif symbol is "PAX":
+            return PAX_ADDRESS
+        else:
+            raise Exception("No such symbol found")
+
+    @staticmethod
+    def get_symbol_by_address(address):
+        if address is DAI_ADDRESS:
+            return "DAI"
+        elif address is TUSD_ADDRESS:
+            return "TUSD"
+        elif address is USDC_ADDRESS:
+            return "USDC"
+        elif address is PAX_ADDRESS:
+            return "PAX"
+        else:
+            raise Exception("No such address found")
+
+    def is_trading_allowed(self) -> bool:
+        return self._permission('tradingAllowed')
+
+    def _permission(self, permission_name) -> bool:
+        return self._contract.functions.permissions(permission_name).call()
 
     def is_token_for_buy(self, token_address: str) -> bool:
         """Check if it's possible to buy token."""
@@ -65,60 +110,89 @@ class Stablecoinswap:
         """Check if it's possible to sell token."""
         return self._contract.functions.inputTokens(token_address).call()
 
-    def get_all_trading_pairs(self, token_addresses: List[str]) -> List[str]:
-        """Check if token can be both sold and bought,
-        then create pairs combinations
+    def token_exchange_rate_after_fees(self, input_token, output_token) -> int:
+        """Return exchange rate after fees."""
+        return self._contract.functions.tokenExchangeRateAfterFees(
+                input_token, output_token).call()
 
-        Pair format is DAI-TUSD
-        """
-        # filter unknown/untraidable tokens first
-        matched_tokens: List[str] = []
+    def token_output_amount_after_fees(self, input_token_amount, input_token,
+            output_token) -> int:
+        return self._contract.functions.tokenOutputAmountAfterFees(
+                input_token_amount, input_token, output_token).call()
 
-        for token_address in token_addresses:
-            # find token name
-            token_name: str = None
+    def _get_trade_fee(self) -> Decimal:
+        return self._contract.functions.fees('tradeFee').call()
 
-            if token_address == DAI_ADDRESS:
-                token_name = "DAI"
-            elif token_address == PAX_ADDRESS:
-                token_name = "PAX"
-            elif token_address == TUSD_ADDRESS:
-                token_name = 'TUSD'
-            elif token_address == USDC_ADDRESS:
-                token_name = 'USDC'
-            else:
-                break
+    def _get_owner_fee(self) -> Decimal:
+        return self._contract.functions.fees('ownerFee').call()
 
-            # don't add already added token
-            try:
-                matched_tokens.index(token_name)
-                break
-            except ValueError:
-                pass
+    def get_fees(self) -> Decimal:
+        trade_fee = self._get_trade_fee()
+        owner_fee = self._get_owner_fee()
 
-            # check if token is tradable
-            if self.is_token_for_sell(token_address) is not True:
-                break
+        return trade_fee + owner_fee
 
-            if self.is_token_for_buy(token_address) is not True:
-                break
+    def get_exchange_rate(self, input_token, output_token) -> Decimal:
+        fees = self.get_fees()
+        rate_after_fees = self.token_exchange_rate_after_fees(input_token,
+                output_token)
 
-            matched_tokens.append(token_name)
+        return rate_after_fees / fees
 
-        if len(matched_tokens) < 2:
-            return []
-
-        matched_tokens.sort()
-
-        # combine names to get traiding pairs
-        pairs: List[str] = []
-        tokens_num = len(matched_tokens)
-
-        for i in range(tokens_num):
-            for j in range(i + 1, tokens_num):
-                pairs.append(f"{matched_tokens[i]}-{matched_tokens[j]}")
-
-        return pairs
+    # def get_all_trading_pairs(self, token_addresses: List[str]) -> List[str]:
+    #     """Check if token can be both sold and bought,
+    #     then create pairs combinations
+    #
+    #     Pair format is DAI-TUSD
+    #     """
+    #     # filter unknown/untraidable tokens first
+    #     matched_tokens: List[str] = []
+    #
+    #     for token_address in token_addresses:
+    #         # find token name
+    #         token_name: str = None
+    #
+    #         if token_address == DAI_ADDRESS:
+    #             token_name = "DAI"
+    #         elif token_address == PAX_ADDRESS:
+    #             token_name = "PAX"
+    #         elif token_address == TUSD_ADDRESS:
+    #             token_name = 'TUSD'
+    #         elif token_address == USDC_ADDRESS:
+    #             token_name = 'USDC'
+    #         else:
+    #             break
+    #
+    #         # don't add already added token
+    #         try:
+    #             matched_tokens.index(token_name)
+    #             break
+    #         except ValueError:
+    #             pass
+    #
+    #         # check if token is tradable
+    #         if self.is_token_for_sell(token_address) is not True:
+    #             break
+    #
+    #         if self.is_token_for_buy(token_address) is not True:
+    #             break
+    #
+    #         matched_tokens.append(token_name)
+    #
+    #     if len(matched_tokens) < 2:
+    #         return []
+    #
+    #     matched_tokens.sort()
+    #
+    #     # combine names to get traiding pairs
+    #     pairs: List[str] = []
+    #     tokens_num = len(matched_tokens)
+    #
+    #     for i in range(tokens_num):
+    #         for j in range(i + 1, tokens_num):
+    #             pairs.append(f"{matched_tokens[i]}-{matched_tokens[j]}")
+    #
+    #     return pairs
 
     @property
     def abi(self) -> List[any]:
