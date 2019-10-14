@@ -24,6 +24,7 @@ from hummingbot.market.market_base import (
 )
 from hummingbot.strategy.market_trading_pair_tuple import MarketTradingPairTuple
 from hummingbot.strategy.strategy_base import StrategyBase
+from hummingbot.core.utils.exchange_rate_conversion import ExchangeRateConversion
 from math import isnan
 
 from .data_types import (
@@ -94,8 +95,9 @@ cdef class PureMarketMakingStrategyV2(StrategyBase):
                  cancel_order_wait_time: float = 60,
                  filled_order_replenish_wait_time: float = 10,
                  enable_order_filled_stop_cancellation: bool = False,
+                 add_transaction_costs_to_orders: bool = False,
                  jump_orders_enabled: bool = False,
-                 jump_orders_depth: float = 0,
+                 jump_orders_depth: Decimal = s_decimal_zero,
                  logging_options: int = OPTION_LOG_ALL,
                  limit_order_min_expiration: float = 130.0,
                  status_report_interval: float = 900):
@@ -112,6 +114,7 @@ cdef class PureMarketMakingStrategyV2(StrategyBase):
         self._all_markets_ready = False
         self._cancel_order_wait_time = cancel_order_wait_time
         self._filled_order_replenish_wait_time = filled_order_replenish_wait_time
+        self._add_transaction_costs_to_orders = add_transaction_costs_to_orders
 
         self._time_to_cancel = {}
 
@@ -307,8 +310,8 @@ cdef class PureMarketMakingStrategyV2(StrategyBase):
             OrderBook maker_orderbook = market_info.order_book
             object updated_buy_order_prices = pricing_proposal.buy_order_prices
             object updated_sell_order_prices = pricing_proposal.sell_order_prices
-            double own_buy_order_depth = 0
-            double own_sell_order_depth = 0
+            object own_buy_order_depth = s_decimal_zero
+            object own_sell_order_depth = s_decimal_zero
 
         active_orders = self.market_info_to_active_orders.get(market_info, [])
 
@@ -323,14 +326,14 @@ cdef class PureMarketMakingStrategyV2(StrategyBase):
                 own_sell_order_depth = order.quantity
 
         # Get the top bid price in the market using jump_orders_depth and your buy order volume
-        top_bid_price = maker_orderbook.c_get_price_for_volume(False,
-                                                               self._jump_orders_depth + own_buy_order_depth).result_price
+        top_bid_price = market_info.get_price_for_volume(False,
+                                                         self._jump_orders_depth + own_buy_order_depth).result_price
         price_quantum = maker_market.c_get_order_price_quantum(
             market_info.trading_pair,
             top_bid_price
         )
         # Get the price above the top bid
-        price_above_bid = (ceil(Decimal(top_bid_price) / price_quantum) + 1) * price_quantum
+        price_above_bid = (ceil(top_bid_price / price_quantum) + 1) * price_quantum
 
         # If the price_above_bid is lower than the price suggested by the pricing proposal,
         # lower your price to this
@@ -339,14 +342,14 @@ cdef class PureMarketMakingStrategyV2(StrategyBase):
                                                                           lower_buy_price)
 
         # Get the top ask price in the market using jump_orders_depth and your sell order volume
-        top_ask_price = maker_orderbook.c_get_price_for_volume(True,
-                                                               self._jump_orders_depth + own_sell_order_depth).result_price
+        top_ask_price = market_info.get_price_for_volume(True,
+                                                         self._jump_orders_depth + own_sell_order_depth).result_price
         price_quantum = maker_market.c_get_order_price_quantum(
             market_info.trading_pair,
             top_ask_price
         )
         # Get the price below the top ask
-        price_below_ask = (floor(Decimal(top_ask_price) / price_quantum) - 1) * price_quantum
+        price_below_ask = (floor(top_ask_price / price_quantum) - 1) * price_quantum
 
         # If the price_below_ask is higher than the price suggested by the pricing proposal,
         # increase your price to this
@@ -356,11 +359,130 @@ cdef class PureMarketMakingStrategyV2(StrategyBase):
 
         return PricingProposal(updated_buy_order_prices, updated_sell_order_prices)
 
+    cdef tuple c_check_and_add_transaction_costs_to_pricing_proposal(self,
+                                                                     object market_info,
+                                                                     object pricing_proposal,
+                                                                     object sizing_proposal):
+        """
+        1. Adds transaction costs to prices
+        2. If the prices are negative, sets the do_not_place_order_flag to True, which stops order placement
+        3. Returns the pricing proposal with transaction cost along with do_not_place_order
+        :param market_info: Pure Market making Pair object
+        :param pricing_proposal: Pricing Proposal
+        :param sizing_proposal: Sizing Proposal
+        :return: (do_not_place_order, Pricing_proposal_with_tx_costs)
+        """
+        cdef:
+            MarketBase maker_market = market_info.market
+            OrderBook maker_orderbook = market_info.order_book
+            object buy_prices_with_tx_costs = pricing_proposal.buy_order_prices
+            object sell_prices_with_tx_costs = pricing_proposal.sell_order_prices
+            int64_t current_tick = <int64_t>(self._current_timestamp // self._status_report_interval)
+            int64_t last_tick = <int64_t>(self._last_timestamp // self._status_report_interval)
+            bint do_not_place_order = False
+            bint should_report_warnings = ((current_tick > last_tick) and
+                                           (self._logging_options & self.OPTION_LOG_STATUS_REPORT))
+            # Current warning report threshold is 10%
+            # If the adjusted price with transaction cost is 10% away from the suggested price,
+            # warnings will be displayed
+            object warning_report_threshold = Decimal("0.1")
+
+        # If both buy order and sell order sizes are zero, no need to add transaction costs
+        # as no new orders are created
+        if sizing_proposal.buy_order_sizes[0] == s_decimal_zero and \
+                sizing_proposal.sell_order_sizes[0] == s_decimal_zero:
+            return do_not_place_order, pricing_proposal
+
+        buy_index = 0
+        for buy_price, buy_amount in zip(pricing_proposal.buy_order_prices,
+                                         sizing_proposal.buy_order_sizes):
+            if buy_amount > s_decimal_zero:
+                fee_object = maker_market.c_get_fee(
+                    market_info.base_asset,
+                    market_info.quote_asset,
+                    OrderType.LIMIT,
+                    TradeType.BUY,
+                    buy_amount,
+                    buy_price
+                )
+                # Total flat fees charged by the exchange
+                total_flat_fees = self.c_sum_flat_fees(market_info.quote_asset,
+                                                       fee_object.flat_fees)
+                # Find the fixed cost per unit size for the total amount
+                # Fees is in Float
+                fixed_cost_per_unit = total_flat_fees / buy_amount
+                # New Price = Price * (1 - maker_fees) - Fixed_fees_per_unit
+                buy_price_with_tx_cost = buy_price * (Decimal(1) - fee_object.percent) - fixed_cost_per_unit
+            else:
+                buy_price_with_tx_cost = buy_price
+
+            buy_price_with_tx_cost = maker_market.c_quantize_order_price(market_info.trading_pair,
+                                                                         buy_price_with_tx_cost)
+
+            # If the buy price with transaction cost is less than or equal to zero
+            # do not place orders
+            if buy_price_with_tx_cost <= s_decimal_zero:
+                if should_report_warnings:
+                    self.logger().warning(f"Buy price with transaction cost is "
+                                          f"less than or equal to zero. Stopping Order placements. ")
+                do_not_place_order = True
+                break
+
+            # If the buy price with the transaction cost is 10% below the buy price due to price adjustment,
+            # Display warning
+            if (buy_price_with_tx_cost / buy_price) < (Decimal(1) - warning_report_threshold):
+                if should_report_warnings:
+                    self.logger().warning(f"Buy price with transaction cost is "
+                                          f"{warning_report_threshold * 100} % below the buy price ")
+
+            buy_prices_with_tx_costs[buy_index] = buy_price_with_tx_cost
+            buy_index += 1
+
+        if do_not_place_order:
+            return do_not_place_order, pricing_proposal
+
+        sell_index = 0
+        for sell_price, sell_amount in zip(pricing_proposal.sell_order_prices,
+                                           sizing_proposal.sell_order_sizes):
+            if sell_amount > s_decimal_zero:
+                fee_object = maker_market.c_get_fee(
+                    market_info.base_asset,
+                    market_info.quote_asset,
+                    OrderType.LIMIT,
+                    TradeType.SELL,
+                    sell_amount,
+                    sell_price
+                )
+                # Total flat fees charged by the exchange
+                total_flat_fees = self.c_sum_flat_fees(market_info.quote_asset,
+                                                       fee_object.flat_fees)
+                # Find the fixed cost per unit size for the total amount
+                # Fees is in Float
+                fixed_cost_per_unit = total_flat_fees / sell_amount
+                # New Price = Price * (1 + maker_fees) + Fixed_fees_per_unit
+                sell_price_with_tx_cost = sell_price * (Decimal(1) + fee_object.percent) + fixed_cost_per_unit
+            else:
+                sell_price_with_tx_cost = sell_price
+
+            sell_price_with_tx_cost = maker_market.c_quantize_order_price(market_info.trading_pair,
+                                                                          Decimal(sell_price_with_tx_cost))
+
+            if (sell_price_with_tx_cost / sell_price) > (Decimal(1) + warning_report_threshold):
+                if should_report_warnings:
+                    self.logger().warning(f"Sell price with transaction cost is "
+                                          f"{warning_report_threshold * 100} % above the sell price")
+
+            sell_prices_with_tx_costs[sell_index] = sell_price_with_tx_cost
+            sell_index += 1
+
+        return (do_not_place_order,
+                PricingProposal(buy_prices_with_tx_costs, sell_prices_with_tx_costs))
+
     cdef object c_get_orders_proposal_for_market_info(self, object market_info, list active_orders):
         cdef:
-            double last_trade_price
             int actions = 0
             list cancel_order_ids = []
+            bint no_order_placement = False
 
         # Before doing anything, ask the filter delegate whether to proceed or not.
         if not self._filter_delegate.c_should_proceed_with_processing(self, market_info, active_orders):
@@ -385,8 +507,18 @@ cdef class PureMarketMakingStrategyV2(StrategyBase):
                                                                           market_info,
                                                                           active_orders,
                                                                           pricing_proposal)
+        if self._add_transaction_costs_to_orders:
+            no_order_placement, pricing_proposal = self.c_check_and_add_transaction_costs_to_pricing_proposal(
+                market_info,
+                pricing_proposal,
+                sizing_proposal)
+
         if sizing_proposal.buy_order_sizes[0] > 0 or sizing_proposal.sell_order_sizes[0] > 0:
             actions |= ORDER_PROPOSAL_ACTION_CREATE_ORDERS
+
+        if no_order_placement:
+            # Order creation bit is set to zero
+            actions = actions & (1 << 1)
 
         if ((market_info.market.name not in self.RADAR_RELAY_TYPE_EXCHANGES) or
                 (market_info.market.display_name == "bamboo_relay" and market_info.market.use_coordinator)):
