@@ -128,9 +128,21 @@ cdef class StablecoinswapMarket(MarketBase):
         return self._order_book_tracker.order_books
 
     @property
+    def order_book_tracker(self) -> StablecoinswapOrderBookTracker:
+        return self._order_book_tracker
+
+    @property
+    def wallet(self) -> Web3Wallet:
+        return self._wallet
+
+    @property
     def limit_orders(self) -> List[LimitOrder]:
         """There is no limit orders on Stablecoinswap."""
         return []
+
+    @property
+    def in_flight_orders(self) -> Dict[str, StablecoinswapInFlightOrder]:
+        return self._in_flight_orders
 
     async def cancel_all(self, timeout_seconds: float) -> List[CancellationResult]:
         return []
@@ -230,6 +242,8 @@ cdef class StablecoinswapMarket(MarketBase):
 
         if is_trading_allowed is not True:
             return NetworkStatus.NOT_CONNECTED
+
+        return NetworkStatus.CONNECTED
 
     cdef c_tick(self, double timestamp):
         cdef:
@@ -395,18 +409,6 @@ cdef class StablecoinswapMarket(MarketBase):
                 self.c_stop_tracking_order(tracked_market_order.tx_hash)
         self._last_update_market_order_timestamp = current_timestamp
 
-    cdef double c_get_balance(self, str currency) except? -1:
-        return float(self._account_balances.get(currency, 0.0))
-
-    cdef double c_get_available_balance(self, str currency) except? -1:
-        return float(self._account_balances.get(currency, 0.0))
-
-    cdef double c_get_price(self, str symbol, bint is_buy) except? -1:
-        cdef:
-            OrderBook order_book = self.c_get_order_book(symbol)
-
-        return order_book.c_get_price(is_buy)
-
     cdef OrderBook c_get_order_book(self, str symbol):
         cdef:
             dict order_books = self._order_book_tracker.order_books
@@ -450,6 +452,9 @@ cdef class StablecoinswapMarket(MarketBase):
             return base_asset, quote_asset
         except Exception:
             raise ValueError(f"Error parsing symbol {symbol}")
+
+    cdef c_cancel(self, str symbol, str order_id):
+        return order_id
 
     cdef str c_buy(self,
                    str symbol,

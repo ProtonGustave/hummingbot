@@ -72,26 +72,26 @@ class Stablecoinswap:
     def get_address_by_symbol(symbol):
         symbol.upper()
 
-        if symbol is "DAI":
+        if symbol == "DAI":
             return DAI_ADDRESS
-        elif symbol is "TUSD":
+        elif symbol == "TUSD":
             return TUSD_ADDRESS
-        elif symbol is "USDC":
+        elif symbol == "USDC":
             return USDC_ADDRESS
-        elif symbol is "PAX":
+        elif symbol == "PAX":
             return PAX_ADDRESS
         else:
             raise Exception("No such symbol found")
 
     @staticmethod
     def get_symbol_by_address(address):
-        if address is DAI_ADDRESS:
+        if address == DAI_ADDRESS:
             return "DAI"
-        elif address is TUSD_ADDRESS:
+        elif address == TUSD_ADDRESS:
             return "TUSD"
-        elif address is USDC_ADDRESS:
+        elif address == USDC_ADDRESS:
             return "USDC"
-        elif address is PAX_ADDRESS:
+        elif address == PAX_ADDRESS:
             return "PAX"
         else:
             raise Exception("No such address found")
@@ -132,12 +132,12 @@ class Stablecoinswap:
 
         return trade_fee + owner_fee
 
-    def get_exchange_rate(self, input_token, output_token) -> Decimal:
-        fees = self.get_fees()
-        rate_after_fees = self.token_exchange_rate_after_fees(input_token,
-                output_token)
-
-        return rate_after_fees / fees
+    # def get_exchange_rate(self, input_token, output_token) -> Decimal:
+    #     fees = self.get_fees()
+    #     rate_after_fees = self.token_exchange_rate_after_fees(input_token,
+    #             output_token)
+    #
+    #     return rate_after_fees / fees
 
     # def get_all_trading_pairs(self, token_addresses: List[str]) -> List[str]:
     #     """Check if token can be both sold and bought,

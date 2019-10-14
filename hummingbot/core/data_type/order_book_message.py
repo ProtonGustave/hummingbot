@@ -357,7 +357,6 @@ class StablecoinswapOrderBookMessage(OrderBookMessage):
         if timestamp is None:
             if message_type is OrderBookMessageType.SNAPSHOT:
                 raise ValueError("timestamp must not be None when initializing snapshot messages.")
-            timestamp = content["time"] * 1e-3
         return super(StablecoinswapOrderBookMessage, cls).__new__(cls, message_type, content,
                                                         timestamp=timestamp, *args, **kwargs)
     @property

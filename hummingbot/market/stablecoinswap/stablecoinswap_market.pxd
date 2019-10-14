@@ -7,8 +7,6 @@ cdef class StablecoinswapMarket(MarketBase):
     cdef:
         str _wallet_spender_address
         object _wallet
-        object _order_book_tracker
-        dict _account_balances
         object _ev_loop
         object _poll_notifier
         double _last_timestamp
