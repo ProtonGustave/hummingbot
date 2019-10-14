@@ -128,6 +128,14 @@ cdef class StablecoinswapMarket(MarketBase):
         return self._order_book_tracker.order_books
 
     @property
+    def limit_orders(self) -> List[LimitOrder]:
+        """There is no limit orders on Stablecoinswap."""
+        return []
+
+    async def cancel_all(self, timeout_seconds: float) -> List[CancellationResult]:
+        return []
+
+    @property
     def status_dict(self) -> Dict[str, bool]:
         return {
             "order_books_initialized": self._order_book_tracker.ready,
