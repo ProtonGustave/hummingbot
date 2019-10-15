@@ -67,6 +67,7 @@ class StablecoinswapAPIOrderBookDataSource(OrderBookTrackerDataSource):
     async def get_snapshot(self, trading_pair: str) -> Dict[str, Any]:
 
         # TODO: comment it
+        # TODO: change it using get_token()
         # fetch rate(order price) and contract balances(order amount) 
         base_asset, quote_asset = StablecoinswapMarket. \
                 split_symbol(trading_pair)
@@ -96,14 +97,14 @@ class StablecoinswapAPIOrderBookDataSource(OrderBookTrackerDataSource):
         sell_rate = base_asset_normalized_price / quote_asset_normalized_price
 
         snapshot: Dict[str, Any] = {
-                "bids": [{
-                    "price": buy_rate,
-                    "amount": buy_amount
-                    }],
-                "asks": [{
-                    "price": sell_rate,
-                    "amount": sell_amount
-                    }],
+                "bids": [[
+                    buy_rate,
+                    buy_amount,
+                    ]],
+                "asks": [[
+                    sell_rate,
+                    sell_amount
+                    ]],
                 }
 
         return snapshot

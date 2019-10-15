@@ -115,7 +115,7 @@ cdef class StablecoinswapMarket(MarketBase):
         self._status_polling_task = None
         self._order_tracker_task = None
         self._approval_tx_polling_task = None
-        self._contract_fees = None
+        self._contract_fees = Decimal(0)
         self._assets_info = {}
         self._wallet_spender_address = stablecoinswap_contracts.STABLECOINSWAP_ADDRESS
 
@@ -425,7 +425,7 @@ cdef class StablecoinswapMarket(MarketBase):
         #
         # decimals_quantum = Decimal(f"1e-{quote_asset_decimals}")
         # return decimals_quantum
-        return Decimal(0.01)
+        return Decimal(0.0001)
 
     cdef object c_get_order_size_quantum(self, str symbol, object amount):
         # """
@@ -439,7 +439,7 @@ cdef class StablecoinswapMarket(MarketBase):
         #     base_asset_decimals = self._assets_info[base_asset]["decimals"]
         # decimals_quantum = Decimal(f"1e-{base_asset_decimals}")
         # return decimals_quantum
-        return Decimal(0.01)
+        return Decimal(0.0001)
 
     cdef object c_quantize_order_amount(self, str symbol, object amount, object price = s_decimal_0):
         quantized_amount = MarketBase.c_quantize_order_amount(self, symbol, amount)
@@ -487,16 +487,27 @@ cdef class StablecoinswapMarket(MarketBase):
         cdef:
             object q_amt = self.c_quantize_order_amount(symbol, amount)
 
+        if q_amt < 0:
+            raise ValueError("Order amount is lower than 0")
+
         try:
             base_asset, quote_asset = self.split_symbol(symbol)
-            base_asset_address = stablecoinswap_contracts. \
-                    Stablecoinswap.get_address_by_symbol(base_asset)
-            quote_asset_address = stablecoinswap_contracts. \
-                    Stablecoinswap.get_address_by_symbol(quote_asset)
+            base_asset_token = self._stl_cont.get_token(base_asset)
+            quote_asset_token = self._stl_cont.get_token(quote_asset)
+            base_asset_decimals = await base_asset_token.get_decimals()
+            quote_asset_decimals = await quote_asset_token.get_decimals()
+            current_price = self.get_price(symbol, True) 
+            input_amount = int(
+                    q_amt * current_price * 10 ** base_asset_decimals)
+            min_output_amount = int(self._stl_cont.token_output_amount_after_fees(
+                    base_asset_token.address, quote_asset_token.address,
+                    input_amount))
 
+            print(q_amt, input_amount, min_output_amount)
             tx_hash = self._wallet.execute_transaction(
-                    self._stl_cont._contract.swapTokens(quote_asset,
-                        base_asset, q_amt, self._current_timestamp + 60 * 60)
+                    self._stl_cont._contract.functions.swapTokens(
+                        base_asset_token.address, quote_asset_token.address,
+                        input_amount, min_output_amount, self._current_timestamp + 60 * 60)
                     )
 
             self.c_start_tracking_order(order_id, symbol, TradeType.BUY, order_type, q_amt, s_decimal_0, tx_hash)
@@ -555,16 +566,26 @@ cdef class StablecoinswapMarket(MarketBase):
         cdef:
             object q_amt = self.c_quantize_order_amount(symbol, amount)
 
+        if q_amt < 0:
+            raise ValueError("Order amount is lower than 0")
+
         try:
             base_asset, quote_asset = self.split_symbol(symbol)
-            base_asset_address = stablecoinswap_contracts. \
-                    Stablecoinswap.get_address_by_symbol(base_asset)
-            quote_asset_address = stablecoinswap_contracts. \
-                    Stablecoinswap.get_address_by_symbol(quote_asset)
+            base_asset_token = self._stl_cont.get_token(base_asset)
+            quote_asset_token = self._stl_cont.get_token(quote_asset)
+            base_asset_decimals = await base_asset_token.get_decimals()
+            quote_asset_decimals = await quote_asset_token.get_decimals()
+            input_amount = int(q_amt * 10 ** quote_asset_decimals)
+            min_output_amount = int(self._stl_cont.token_output_amount_after_fees(
+                    quote_asset_token.address, base_asset_token.address,
+                    input_amount))
+
+            print(q_amt, input_amount, min_output_amount)
 
             tx_hash = self._wallet.execute_transaction(
-                    self._stl_cont._contract.swapTokens(base_asset,
-                        quote_asset, q_amt, self._current_timestamp + 60 * 60)
+                    self._stl_cont._contract.functions.swapTokens(
+                        quote_asset_token.address, base_asset_token.address,
+                        input_amount, min_output_amount, self._current_timestamp + 60 * 60)
                     )
             self.c_start_tracking_order(order_id, symbol, TradeType.SELL, order_type, q_amt, s_decimal_0, tx_hash)
 

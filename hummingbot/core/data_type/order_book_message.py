@@ -372,14 +372,6 @@ class StablecoinswapOrderBookMessage(OrderBookMessage):
         return self.content["symbol"]
 
     @property
-    def asks(self) -> List[OrderBookRow]:
-        raise NotImplementedError("Stablecoinswap order book messages have different semantics.")
-
-    @property
-    def bids(self)-> List[OrderBookRow]:
-        raise NotImplementedError("Stablecoinswap order book messages have different semantics.")
-
-    @property
     def has_update_id(self) -> bool:
         return True
 

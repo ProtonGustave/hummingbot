@@ -2,12 +2,15 @@ import os
 import json
 from typing import (
     List,
+    Dict
 )
 from web3 import Web3
 from web3.contract import (
     Contract,
 )
 from decimal import Decimal
+from hummingbot.wallet.ethereum.erc20_token import ERC20Token
+from hummingbot.wallet.ethereum.ethereum_chain import EthereumChain
 
 ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
 DAI_ADDRESS = "0x89d24A6b4CcB1B6fAA2625fE562bDD9a23260359"
@@ -36,20 +39,6 @@ class PriceOracle:
         self._abi: List[any] = oracle_abi
         self._contract: Contract = self._w3.eth.contract(address=self._address, abi=self._abi)
 
-    def get_supported_tokens(self) -> List[str]:
-        """Return all contract supported tokens."""
-        supported_tokens: List[str] = []
-
-        for token_id in range(5):
-            token_address: str = self._contract.functions.supportedTokens(token_id).call()
-
-            if token_address == ZERO_ADDRESS:
-                break
-
-            supported_tokens.append(token_address)
-
-        return supported_tokens
-
     def normalized_token_price(self, token_address) -> int:
         return self._contract.functions.normalized_token_prices(token_address).call()
 
@@ -67,6 +56,7 @@ class Stablecoinswap:
         self._w3: Web3 = w3
         self._abi: List[any] = stl_abi
         self._contract: Contract = self._w3.eth.contract(address=self._address, abi=self._abi)
+        self._tokens: Dict[str, ERC20Token] = {}
 
     @staticmethod
     def get_address_by_symbol(symbol):
@@ -95,6 +85,33 @@ class Stablecoinswap:
             return "PAX"
         else:
             raise Exception("No such address found")
+
+    def get_token(self, token) -> ERC20Token:
+        """Return ERC20Token by token address/name."""
+        if not Web3.isAddress(token):
+            token_address = self.get_address_by_symbol(token)
+        else:
+            token_address = token
+
+        if token_address not in self._tokens:
+            self._tokens[token_address] = ERC20Token(self._w3, token_address,
+                    EthereumChain.MAIN_NET)
+
+        return self._tokens[token_address]
+
+    def get_supported_tokens(self) -> List[str]:
+        """Return all contract supported tokens."""
+        supported_tokens: List[str] = []
+
+        for token_id in range(5):
+            token_address: str = self._contract.functions.supportedTokens(token_id).call()
+
+            if token_address == ZERO_ADDRESS:
+                break
+
+            supported_tokens.append(token_address)
+
+        return supported_tokens
 
     def is_trading_allowed(self) -> bool:
         return self._permission('tradingAllowed')

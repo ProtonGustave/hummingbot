@@ -131,6 +131,8 @@ class OrderBookTracker(ABC):
         new_symbols: Set[str] = available_symbols - tracking_symbols
         deleted_symbols: Set[str] = tracking_symbols - available_symbols
 
+        print(new_symbols)
+
         for symbol in new_symbols:
             self._order_books[symbol] = available_pairs[symbol].order_book
             self._tracking_message_queues[symbol] = asyncio.Queue()
