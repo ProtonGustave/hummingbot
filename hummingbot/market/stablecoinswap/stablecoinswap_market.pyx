@@ -115,7 +115,7 @@ cdef class StablecoinswapMarket(MarketBase):
         self._status_polling_task = None
         self._order_tracker_task = None
         self._approval_tx_polling_task = None
-        self._contract_fees = Decimal(0)
+        self._contract_fees = None
         self._assets_info = {}
         self._wallet_spender_address = stablecoinswap_contracts.STABLECOINSWAP_ADDRESS
 
@@ -153,7 +153,8 @@ cdef class StablecoinswapMarket(MarketBase):
             "order_books_initialized": self._order_book_tracker.ready,
             "account_balance": len(self._account_balances) > 0 if self._trading_required else True,
             "asset_info": len(self._assets_info) > 0,
-            "token_approval": len(self._pending_approval_tx_hashes) == 0 if self._trading_required else True
+            "token_approval": len(self._pending_approval_tx_hashes) == 0 if self._trading_required else True,
+            "contract_fees": self._contract_fees != None
         }
 
     def ready(self) -> bool:
@@ -180,6 +181,10 @@ cdef class StablecoinswapMarket(MarketBase):
 
     def _update_balances(self):
         self._account_balances = self.wallet.get_all_balances()
+
+    async def _update_available_balances(self):
+        # should be the same here, there are no locked balances on bamboo relay
+        self._account_available_balances = self._account_balances
 
     # async def _update_asset_info(self):
     #     # TODO:
@@ -303,6 +308,7 @@ cdef class StablecoinswapMarket(MarketBase):
                 await safe_gather(
                     self._update_market_order_status(),
                     # self._update_asset_info(),
+                    self._update_available_balances(),
                     self._update_fee(),
                 )
             except asyncio.CancelledError:
@@ -366,7 +372,23 @@ cdef class StablecoinswapMarket(MarketBase):
                             TradeFee(0.0, [("ETH", gas_used)])
                         )
                     )
+
+                    base_asset_token = self._stl_cont.get_token(tracked_market_order.base_asset)
+                    quote_asset_token = self._stl_cont.get_token(tracked_market_order.quote_asset)
+                    base_asset_decimals = await base_asset_token.get_decimals()
+                    quote_asset_decimals = await quote_asset_token.get_decimals()
+
                     if tracked_market_order.trade_type is TradeType.BUY:
+                        # retrieve executed amount from blockchain logs
+                        tracked_market_order.executed_amount_base = Decimal(Web3.toInt(
+                                hexstr=receipt.logs[0].data)) / base_asset_decimals
+                        tracked_market_order.executed_amount_quote = Decimal(Web3.toInt(
+                                hexstr=receipt.logs[1].data)) / quote_asset_decimals
+
+                        # calclate fees
+                        tracked_market_order.fee_paid = tracked_market_order. \
+                                executed_amount_quote * self._contract_fees 
+
                         self.logger().info(f"The market buy order "
                                            f"{tracked_market_order.client_order_id} has completed according to "
                                            f"transaction hash {tracked_market_order.tx_hash}.")
@@ -375,12 +397,21 @@ cdef class StablecoinswapMarket(MarketBase):
                                                                     tracked_market_order.client_order_id,
                                                                     tracked_market_order.base_asset,
                                                                     tracked_market_order.quote_asset,
-                                                                    tracked_market_order.quote_asset,
-                                                                    float(tracked_market_order.amount),
+                                                                    tracked_market_order.fee_asset,
+                                                                    float(tracked_market_order.executed_amount_base),
                                                                     float(tracked_market_order.executed_amount_quote),
-                                                                    float(tracked_market_order.gas_fee_amount),
+                                                                    float(tracked_market_order.fee_paid),
                                                                     OrderType.MARKET))
                     else:
+                        # retrieve executed amount from blockchain logs
+                        tracked_market_order.executed_amount_base = Decimal(Web3.toInt(
+                                hexstr=receipt.logs[1].data)) / base_asset_decimals
+                        tracked_market_order.executed_amount_quote = Decimal(Web3.toInt(
+                                hexstr=receipt.logs[0].data)) / quote_asset_decimals
+
+                        # calclate fees
+                        tracked_market_order.fee_paid = tracked_market_order. \
+                                executed_amount_base * self._contract_fees 
                         self.logger().info(f"The market sell order "
                                            f"{tracked_market_order.client_order_id} has completed according to "
                                            f"transaction hash {tracked_market_order.tx_hash}.")
@@ -389,10 +420,10 @@ cdef class StablecoinswapMarket(MarketBase):
                                                                      tracked_market_order.client_order_id,
                                                                      tracked_market_order.base_asset,
                                                                      tracked_market_order.quote_asset,
-                                                                     tracked_market_order.quote_asset,
-                                                                     float(tracked_market_order.amount),
+                                                                     tracked_market_order.fee_asset,
+                                                                     float(tracked_market_order.executed_amount_base),
                                                                      float(tracked_market_order.executed_amount_quote),
-                                                                     float(tracked_market_order.gas_fee_amount),
+                                                                     float(tracked_market_order.fee_paid),
                                                                      OrderType.MARKET))
                 else:
                     err_msg = (f"Unrecognized transaction status for market order "
@@ -500,17 +531,20 @@ cdef class StablecoinswapMarket(MarketBase):
             input_amount = int(
                     q_amt * current_price * 10 ** base_asset_decimals)
             min_output_amount = int(self._stl_cont.token_output_amount_after_fees(
-                    base_asset_token.address, quote_asset_token.address,
-                    input_amount))
+                    input_amount, base_asset_token.address,
+                    quote_asset_token.address))
 
-            print(q_amt, input_amount, min_output_amount)
+            print(current_price, q_amt, input_amount, min_output_amount, int(self._current_timestamp))
             tx_hash = self._wallet.execute_transaction(
                     self._stl_cont._contract.functions.swapTokens(
                         base_asset_token.address, quote_asset_token.address,
-                        input_amount, min_output_amount, self._current_timestamp + 60 * 60)
+                        input_amount, min_output_amount, 100000000000000000000)
                     )
 
-            self.c_start_tracking_order(order_id, symbol, TradeType.BUY, order_type, q_amt, s_decimal_0, tx_hash)
+            print(tx_hash)
+
+            self.c_start_tracking_order(order_id, symbol, TradeType.BUY,
+                    order_type, q_amt, s_decimal_0, tx_hash, quote_asset)
 
             self.logger().info(f"Created market buy order for {q_amt} {symbol}.")
             self.c_trigger_event(self.MARKET_BUY_ORDER_CREATED_EVENT_TAG,
@@ -577,17 +611,19 @@ cdef class StablecoinswapMarket(MarketBase):
             quote_asset_decimals = await quote_asset_token.get_decimals()
             input_amount = int(q_amt * 10 ** quote_asset_decimals)
             min_output_amount = int(self._stl_cont.token_output_amount_after_fees(
-                    quote_asset_token.address, base_asset_token.address,
-                    input_amount))
+                    input_amount, quote_asset_token.address,
+                    base_asset_token.address))
 
             print(q_amt, input_amount, min_output_amount)
 
             tx_hash = self._wallet.execute_transaction(
                     self._stl_cont._contract.functions.swapTokens(
                         quote_asset_token.address, base_asset_token.address,
-                        input_amount, min_output_amount, self._current_timestamp + 60 * 60)
+                        input_amount, min_output_amount, int(self._current_timestamp + 60 * 60))
                     )
-            self.c_start_tracking_order(order_id, symbol, TradeType.SELL, order_type, q_amt, s_decimal_0, tx_hash)
+
+            self.c_start_tracking_order(order_id, symbol, TradeType.SELL,
+                    order_type, q_amt, s_decimal_0, tx_hash, base_asset)
 
             self.logger().info(f"Created market sell order for {q_amt} {symbol}.")
             self.c_trigger_event(self.MARKET_SELL_ORDER_CREATED_EVENT_TAG,
@@ -619,7 +655,8 @@ cdef class StablecoinswapMarket(MarketBase):
                                 object order_type,
                                 object amount,
                                 object price,
-                                str tx_hash):
+                                str tx_hash,
+                                str fee_asset):
         self._in_flight_orders[client_order_id] = StablecoinswapInFlightOrder(
             client_order_id=client_order_id,
             exchange_order_id=None,
@@ -628,7 +665,8 @@ cdef class StablecoinswapMarket(MarketBase):
             trade_type=trade_type,
             price=price,
             amount=amount,
-            tx_hash=tx_hash
+            tx_hash=tx_hash,
+            fee_asset=fee_asset
         )
 
     cdef c_stop_tracking_order(self, str order_id):

@@ -1,4 +1,5 @@
 from hummingbot.market.in_flight_order_base cimport InFlightOrderBase
 
 cdef class StablecoinswapInFlightOrder(InFlightOrderBase):
-    pass
+    cdef:
+        public str tx_hash

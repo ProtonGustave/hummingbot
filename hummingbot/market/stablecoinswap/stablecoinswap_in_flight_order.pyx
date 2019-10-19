@@ -23,6 +23,8 @@ cdef class StablecoinswapInFlightOrder(InFlightOrderBase):
                  price: Decimal,
                  amount: Decimal,
                  tx_hash: Optional[str] = None,
+                 fee_asset: Optional[str] = None,
+
                  initial_state: str = "open"):
         super().__init__(
             StablecoinswapMarket,
@@ -36,6 +38,7 @@ cdef class StablecoinswapInFlightOrder(InFlightOrderBase):
             initial_state,
         )
         self.tx_hash = tx_hash  # used for tracking market orders
+        self.fee_asset = fee_asset
 
     @property
     def is_done(self) -> bool:
@@ -67,5 +70,9 @@ cdef class StablecoinswapInFlightOrder(InFlightOrderBase):
                 amount=Decimal(data["amount"]),
                 initial_state=data["last_state"],
                 tx_hash=data["tx_hash"],
+                fee_asset=data["fee_asset"]
             )
+        retval.executed_amount_base = Decimal(data.get("executed_amount_base", 0))
+        retval.executed_amount_quote = Decimal(data.get("executed_amount_quote", 0))
+        retval.fee_paid = Decimal(data.get("fee_paid", 0))
         return retval

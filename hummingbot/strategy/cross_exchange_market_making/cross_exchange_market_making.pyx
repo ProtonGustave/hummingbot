@@ -666,8 +666,8 @@ cdef class CrossExchangeMarketMakingStrategy(StrategyBase):
         cdef:
             MarketBase maker_market = market_pair.maker.market
             str symbol = market_pair.maker.trading_pair
-            object base_balance = Decimal(maker_market.c_get_balance(market_pair.maker.base_asset))
-            object quote_balance = Decimal(maker_market.c_get_balance(market_pair.maker.quote_asset))
+            object base_balance = maker_market.c_get_balance(market_pair.maker.base_asset)
+            object quote_balance = maker_market.c_get_balance(market_pair.maker.quote_asset)
             object current_price = (maker_market.c_get_price(symbol, True) +
                                     maker_market.c_get_price(symbol, False)) * Decimal(0.5)
             object maker_portfolio_value = base_balance + quote_balance / current_price

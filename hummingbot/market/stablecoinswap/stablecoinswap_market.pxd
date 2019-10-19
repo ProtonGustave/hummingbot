@@ -34,6 +34,7 @@ cdef class StablecoinswapMarket(MarketBase):
                                 object order_type,
                                 object amount,
                                 object price,
-                                str tx_hash)
+                                str tx_hash,
+                                str fee_asset)
     cdef c_stop_tracking_order(self, str order_id)
 
