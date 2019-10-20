@@ -28,6 +28,7 @@ from hummingbot.core.data_type.order_book_tracker_data_source import OrderBookTr
 from hummingbot.core.utils.async_utils import safe_ensure_future
 from hummingbot.logger import HummingbotLogger
 from hummingbot.market.stablecoinswap.stablecoinswap_api_order_book_data_source import StablecoinswapAPIOrderBookDataSource
+import hummingbot.market.stablecoinswap.stablecoinswap_contracts as stablecoinswap_contracts
 
 
 class StablecoinswapOrderBookTracker(OrderBookTracker):
@@ -40,13 +41,13 @@ class StablecoinswapOrderBookTracker(OrderBookTracker):
         return cls._stlobt_logger
 
     def __init__(self,
-                 w3: Web3,
+                 stl_contract: stablecoinswap_contracts.Stablecoinswap,
                  data_source_type: OrderBookTrackerDataSourceType = OrderBookTrackerDataSourceType.EXCHANGE_API,
                  symbols: Optional[List[str]] = None):
         super().__init__(data_source_type=data_source_type)
         self._data_source: Optional[OrderBookTrackerDataSource] = None
         self._saved_message_queues: Dict[str, Deque[OrderBookMessage]] = defaultdict(lambda: deque(maxlen=1000))
-        self._w3 = w3
+        self._stl_contract = stl_contract
         self._symbols: Optional[List[str]] = symbols
 
     @property
@@ -54,7 +55,8 @@ class StablecoinswapOrderBookTracker(OrderBookTracker):
         # TODO: change Type to BLOCKCHAIN
         if not self._data_source:
             if self._data_source_type is OrderBookTrackerDataSourceType.EXCHANGE_API:
-                self._data_source = StablecoinswapAPIOrderBookDataSource(symbols=self._symbols, w3 = self._w3)
+                self._data_source = StablecoinswapAPIOrderBookDataSource(
+                        symbols=self._symbols, stl_contract=self._stl_contract)
             else:
                 raise ValueError(f"data_source_type {self._data_source_type} is not supported.")
         return self._data_source

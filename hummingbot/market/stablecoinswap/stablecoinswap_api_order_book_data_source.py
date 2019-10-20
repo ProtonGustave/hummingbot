@@ -21,8 +21,6 @@ from hummingbot.logger import HummingbotLogger
 from hummingbot.market.stablecoinswap.stablecoinswap_order_book import StablecoinswapOrderBook
 from hummingbot.market.stablecoinswap.stablecoinswap_market import StablecoinswapMarket
 import hummingbot.market.stablecoinswap.stablecoinswap_contracts as stablecoinswap_contracts
-from hummingbot.wallet.ethereum.erc20_token import ERC20Token
-from hummingbot.wallet.ethereum.ethereum_chain import EthereumChain
 
 class StablecoinswapAPIOrderBookDataSource(OrderBookTrackerDataSource):
 
@@ -38,13 +36,11 @@ class StablecoinswapAPIOrderBookDataSource(OrderBookTrackerDataSource):
         return cls._stlaobds_logger
 
     def __init__(self,
-                 w3: Web3,
+                 stl_contract: stablecoinswap_contracts.Stablecoinswap,
                  symbols: Optional[List[str]] = None):
         super().__init__()
         self._symbols: Optional[List[str]] = symbols
-        self._w3 = w3
-        self._stl_cont = stablecoinswap_contracts.Stablecoinswap(self._w3)
-        self._oracle_cont = stablecoinswap_contracts.PriceOracle(self._w3)
+        self._stl_cont = stl_contract
 
     # TODO
     async def get_active_exchange_markets(cls) -> pd.DataFrame:
@@ -65,47 +61,35 @@ class StablecoinswapAPIOrderBookDataSource(OrderBookTrackerDataSource):
         return self._symbols
 
     async def get_snapshot(self, trading_pair: str) -> Dict[str, Any]:
-
-        # TODO: comment it
-        # TODO: change it using get_token()
-        # fetch rate(order price) and contract balances(order amount) 
         base_asset, quote_asset = StablecoinswapMarket. \
                 split_symbol(trading_pair)
-        base_asset_address = stablecoinswap_contracts. \
-                Stablecoinswap.get_address_by_symbol(base_asset)
-        quote_asset_address = stablecoinswap_contracts. \
-                Stablecoinswap.get_address_by_symbol(quote_asset)
 
-        base_asset_token = ERC20Token(self._w3, base_asset_address,
-                EthereumChain.MAIN_NET) 
-        quote_asset_token = ERC20Token(self._w3, quote_asset_address,
-                EthereumChain.MAIN_NET)
+        exchange_rate = await self._stl_cont.get_exchange_rate(quote_asset,
+                base_asset)
+
+        base_asset_token = self._stl_cont.get_token(base_asset)
+        quote_asset_token = self._stl_cont.get_token(quote_asset)
+        base_asset_decimals = await base_asset_token.get_decimals()
+        quote_asset_decimals = await quote_asset_token.get_decimals()
         base_asset_balance = base_asset_token._contract.functions.balanceOf(
-                stablecoinswap_contracts.STABLECOINSWAP_ADDRESS).call()
+                stablecoinswap_contracts.STABLECOINSWAP_ADDRESS).call() \
+                        / 10 ** base_asset_decimals
         quote_asset_balance = quote_asset_token._contract.functions.balanceOf(
-                stablecoinswap_contracts.STABLECOINSWAP_ADDRESS).call()
-        base_asset_decimals = base_asset_token._contract.functions.decimals().call()
-        quote_asset_decimals = quote_asset_token._contract.functions.decimals().call()
-        buy_amount = quote_asset_balance / 10 ** quote_asset_decimals
-        sell_amount = base_asset_balance / 10 ** base_asset_decimals
-
-        base_asset_normalized_price = self._oracle_cont. \
-                normalized_token_price(base_asset_address) / (10 ** (18 - base_asset_decimals))
-        quote_asset_normalized_price = self._oracle_cont. \
-                normalized_token_price(quote_asset_address) / (10 ** (18 - quote_asset_decimals))
-        buy_rate = quote_asset_normalized_price / base_asset_normalized_price
-        sell_rate = base_asset_normalized_price / quote_asset_normalized_price
+                stablecoinswap_contracts.STABLECOINSWAP_ADDRESS).call() \
+                        / 10 ** quote_asset_decimals
 
         snapshot: Dict[str, Any] = {
                 "bids": [[
-                    buy_rate,
-                    buy_amount,
+                    exchange_rate["buy"],
+                    quote_asset_balance,
                     ]],
                 "asks": [[
-                    sell_rate,
-                    sell_amount
+                    exchange_rate["sell"],
+                    base_asset_balance,
                     ]],
                 }
+
+        print(snapshot)
 
         return snapshot
 

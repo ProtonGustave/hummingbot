@@ -2,7 +2,8 @@ import os
 import json
 from typing import (
     List,
-    Dict
+    Dict,
+    Optional
 )
 from web3 import Web3
 from web3.contract import (
@@ -51,12 +52,14 @@ class Stablecoinswap:
 
     def __init__(self,
                  w3: Web3,
+                 oracle_contract: Optional[PriceOracle] = None,
                  address: str = STABLECOINSWAP_ADDRESS):
         self._address = address
         self._w3: Web3 = w3
         self._abi: List[any] = stl_abi
         self._contract: Contract = self._w3.eth.contract(address=self._address, abi=self._abi)
         self._tokens: Dict[str, ERC20Token] = {}
+        self._oracle_contract = oracle_contract
 
     @staticmethod
     def get_address_by_symbol(symbol):
@@ -136,6 +139,23 @@ class Stablecoinswap:
             output_token) -> int:
         return self._contract.functions.tokenOutputAmountAfterFees(
                 input_token_amount, input_token, output_token).call()
+
+    async def get_exchange_rate(self, quote_token_name, base_token_name) -> Dict[str, Decimal]:
+        """Return exchange rate(buy/sell) before fees."""
+        quote_token = self.get_token(quote_token_name)
+        base_token = self.get_token(base_token_name)
+        quote_token_decimals = await quote_token.get_decimals()
+        base_token_decimals = await base_token.get_decimals()
+
+        quote_token_price = self._oracle_contract.normalized_token_price(
+                quote_token.address) / Decimal(10 ** (18 - quote_token_decimals))
+        base_token_price = self._oracle_contract.normalized_token_price(
+                base_token.address) / Decimal(10 ** (18 - base_token_decimals))
+
+        return {
+                "buy": base_token_price / quote_token_price,
+                "sell": quote_token_price / base_token_price
+                }
 
     def _get_trade_fee(self) -> Decimal:
         return self._contract.functions.fees('tradeFee').call()
