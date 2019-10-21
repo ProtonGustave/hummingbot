@@ -45,11 +45,8 @@ from hummingbot.wallet.ethereum.web3_wallet import Web3Wallet
 from hummingbot.market.market_base cimport MarketBase
 from hummingbot.logger import HummingbotLogger
 
-# TODO implement
 from hummingbot.market.stablecoinswap.stablecoinswap_order_book_tracker import StablecoinswapOrderBookTracker
 from hummingbot.market.stablecoinswap.stablecoinswap_in_flight_order cimport StablecoinswapInFlightOrder
-# TODO implement
-# from hummingbot.market.stablecoinswap.stablecoinswap_api_order_book_data_source import StablecoinswapAPIOrderBookDataSource
 import hummingbot.market.stablecoinswap.stablecoinswap_contracts as stablecoinswap_contracts
 
 im_logger = None
@@ -79,7 +76,6 @@ cdef class StablecoinswapMarket(MarketBase):
     MARKET_SELL_ORDER_CREATED_EVENT_TAG = MarketEvent.SellOrderCreated.value
 
     FEE_UPDATE_INTERVAL = 60
-    UPDATE_ASSETS_INFO_INTERVAL = 60 * 60
     UPDATE_MARKET_ORDERS_INTERVAL = 10
 
     @classmethod
@@ -118,7 +114,7 @@ cdef class StablecoinswapMarket(MarketBase):
         self._order_tracker_task = None
         self._approval_tx_polling_task = None
         self._contract_fees = None
-        self._assets_info = {}
+        self._assets_decimals = {}
         self._wallet_spender_address = stablecoinswap_contracts.STABLECOINSWAP_ADDRESS
 
     @property
@@ -155,7 +151,8 @@ cdef class StablecoinswapMarket(MarketBase):
             "order_books_initialized": self._order_book_tracker.ready,
             "account_balance": len(self._account_balances) > 0 if self._trading_required else True,
             "token_approval": len(self._pending_approval_tx_hashes) == 0 if self._trading_required else True,
-            "contract_fees": self._contract_fees != None
+            "contract_fees": self._contract_fees != None,
+            "asset_decimals": len(self._assets_decimals) > 0
         }
 
     @property
@@ -175,44 +172,24 @@ cdef class StablecoinswapMarket(MarketBase):
             for key, value in saved_states.items()
         })
 
-    # async def get_active_exchange_markets(self) -> pd.DataFrame:
-    #     return await StablecoinswapAPIOrderBookDataSource.get_active_exchange_markets()
-
     def get_all_balances(self) -> Dict[str, float]:
         return self._account_balances.copy()
 
     def _update_balances(self):
         self._account_balances = self.wallet.get_all_balances()
-
-    async def _update_available_balances(self):
-        # should be the same here, there are no locked balances on bamboo relay
         self._account_available_balances = self._account_balances
 
-    # async def _update_asset_info(self):
-    #     # TODO:
-    #     """
-    #     Asset info contains asset's address and decimals
-    #     {
-    #         "ETH": {
-    #         "decimals": 18,
-    #         "address": "0x0000000000000000000000000000000000000000",
-    #         "name": "Ether"
-    #         },
-    #         "REP": {
-    #         "decimals": 8,
-    #         "address": "0xc853ba17650d32daba343294998ea4e33e7a48b9",
-    #         "name": "Reputation"
-    #         },
-    #         ...
-    #     }
-    #     """
-    #     cdef:
-    #         double current_timestamp = self._current_timestamp
-    #
-    #     if current_timestamp - self._last_update_asset_info_timestamp > self.UPDATE_ASSETS_INFO_INTERVAL or len(self._assets_info) == 0:
-    #         currencies = await self.get_currencies()
-    #         self._assets_info = currencies
-    #         self._last_update_asset_info_timestamp = current_timestamp
+    async def _update_asset_decimals(self):
+        for symbol in self._order_book_tracker._symbols:
+            base_token_name, quote_token_name = self.split_symbol(symbol)
+            base_token = self._stl_cont.get_token(base_token_name)
+            quote_token = self._stl_cont.get_token(quote_token_name)
+
+            if base_token_name not in self._assets_decimals:
+                self._assets_decimals[base_token_name] = await base_token.get_decimals()
+
+            if quote_token_name not in self._assets_decimals:
+                self._assets_decimals[quote_token_name] = await quote_token.get_decimals()
 
     async def start_network(self):
         if self._order_tracker_task is not None:
@@ -226,6 +203,9 @@ cdef class StablecoinswapMarket(MarketBase):
             )
             self._pending_approval_tx_hashes.update(tx_hashes)
             self._approval_tx_polling_task = safe_ensure_future(self._approval_tx_polling_loop())
+
+        if len(self._assets_decimals) == 0:
+            await self._update_asset_decimals()
 
     def _stop_network(self):
         if self._order_tracker_task is not None:
@@ -310,8 +290,6 @@ cdef class StablecoinswapMarket(MarketBase):
                 await safe_gather(
                     self._update_fee(),
                     self._update_market_order_status(),
-                    # self._update_asset_info(),
-                    self._update_available_balances(),
                 )
             except asyncio.CancelledError:
                 raise
@@ -385,15 +363,15 @@ cdef class StablecoinswapMarket(MarketBase):
                     if tracked_market_order.trade_type is TradeType.BUY:
                         # retrieve executed amount from blockchain logs
                         tracked_market_order.executed_amount_base = Web3.toInt(
-                                hexstr=receipt.logs[0].data) / Decimal(10 ** base_asset_decimals)
+                                hexstr=receipt.logs[0].data) / Decimal(f"1e{quote_asset_decimals}")
                         tracked_market_order.executed_amount_quote = Web3.toInt(
-                                hexstr=receipt.logs[1].data) / Decimal(10 ** quote_asset_decimals)
+                                hexstr=receipt.logs[1].data) / Decimal(f"1e{base_asset_decimals}")
 
                         print(tracked_market_order.executed_amount_quote, tracked_market_order.executed_amount_base)
 
                         # calclate fees
                         tracked_market_order.fee_paid = tracked_market_order. \
-                                executed_amount_quote * tracked_market_order.fee_percent
+                                executed_amount_quote * Decimal(tracked_market_order.fee_percent)
 
                         self.logger().info(f"The market buy order "
                                            f"{tracked_market_order.client_order_id} has completed according to "
@@ -404,19 +382,19 @@ cdef class StablecoinswapMarket(MarketBase):
                                                                     tracked_market_order.base_asset,
                                                                     tracked_market_order.quote_asset,
                                                                     tracked_market_order.fee_asset,
-                                                                    float(tracked_market_order.executed_amount_base),
-                                                                    float(tracked_market_order.executed_amount_quote),
-                                                                    float(tracked_market_order.fee_paid),
+                                                                    tracked_market_order.executed_amount_base,
+                                                                    tracked_market_order.executed_amount_quote,
+                                                                    tracked_market_order.fee_paid,
                                                                     OrderType.MARKET))
                     else:
                         # retrieve executed amount from blockchain logs
                         tracked_market_order.executed_amount_base = Web3.toInt(
-                                hexstr=receipt.logs[1].data) / Decimal(10 ** base_asset_decimals)
+                                hexstr=receipt.logs[1].data) / Decimal(f"1e{base_asset_decimals}")
                         tracked_market_order.executed_amount_quote = Web3.toInt(
-                                hexstr=receipt.logs[0].data) / Decimal(10 ** quote_asset_decimals)
+                                hexstr=receipt.logs[0].data) / Decimal(f"1e{quote_asset_decimals}")
 
                         tracked_market_order.fee_paid = tracked_market_order. \
-                                executed_amount_base * tracked_market_order.fee_percent
+                                executed_amount_base * Decimal(tracked_market_order.fee_percent)
 
                         self.logger().info(f"The market sell order "
                                            f"{tracked_market_order.client_order_id} has completed according to "
@@ -455,40 +433,30 @@ cdef class StablecoinswapMarket(MarketBase):
         return order_books[symbol]
 
     cdef object c_get_order_price_quantum(self, str symbol, object price):
-        # TODO
-        # cdef:
-        #     quote_asset = self.split_symbol(symbol)[1]
-        #     quote_asset_decimals = self._assets_info[quote_asset]["decimals"]
-        #
-        # decimals_quantum = Decimal(f"1e-{quote_asset_decimals}")
-        # return decimals_quantum
-        return Decimal(0.0001)
+        base_asset, quote_asset = self.split_symbol(symbol)
+        base_asset_decimals = self._assets_decimals[base_asset]
+        quote_asset_decimals = self._assets_decimals[quote_asset]
+
+        decimals_quantum = Decimal(
+                f"1e-{min(base_asset_decimals, quote_asset_decimals)}")
+        return decimals_quantum
 
     cdef object c_get_order_size_quantum(self, str symbol, object amount):
-        # """
-        # *required
-        # Get the minimum increment interval for order size (e.g. 0.01 USD)
-        # :return: Min order size increment in Decimal format
-        # """
-        # # TODO
-        # cdef:
-        #     base_asset = self.split_symbol(symbol)[0]
-        #     base_asset_decimals = self._assets_info[base_asset]["decimals"]
-        # decimals_quantum = Decimal(f"1e-{base_asset_decimals}")
-        # return decimals_quantum
-        return Decimal(0.0001)
+        base_asset, quote_asset = self.split_symbol(symbol)
+        base_asset_decimals = self._assets_decimals[base_asset]
+        quote_asset_decimals = self._assets_decimals[quote_asset]
+
+        decimals_quantum = Decimal(
+                f"1e-{min(base_asset_decimals, quote_asset_decimals)}")
+        return decimals_quantum
 
     cdef object c_quantize_order_amount(self, str symbol, object amount, object price = s_decimal_0):
         quantized_amount = MarketBase.c_quantize_order_amount(self, symbol, amount)
-        return quantized_amount
 
-    @staticmethod
-    def split_symbol(symbol: str) -> Tuple[str, str]:
-        try:
-            quote_asset, base_asset = symbol.split("-")
-            return base_asset, quote_asset
-        except Exception:
-            raise ValueError(f"Error parsing symbol {symbol}")
+        if quantized_amount < 0:
+            return s_decimal_0
+
+        return quantized_amount
 
     cdef c_cancel(self, str symbol, str order_id):
         return order_id
@@ -502,7 +470,7 @@ cdef class StablecoinswapMarket(MarketBase):
 
         # only market order can be implemented
         if order_type is not OrderType.MARKET:
-            raise NotImplementedError
+            raise NotImplementedError("Only market order can implemented")
 
         cdef:
             int64_t tracking_nonce = <int64_t>(time.time() * 1e6)
@@ -519,13 +487,13 @@ cdef class StablecoinswapMarket(MarketBase):
                           price: Decimal) -> str:
         # only market order can be implemented
         if order_type is not OrderType.MARKET:
-            raise NotImplementedError
+            raise NotImplementedError("Only market order can implemented")
 
         cdef:
             object q_amt = self.c_quantize_order_amount(symbol, amount)
 
-        if q_amt < 0:
-            raise ValueError("Order amount is lower than 0")
+        if q_amt <= 0:
+            raise ValueError("Order amount is lower than or equal to 0")
 
         try:
             base_asset, quote_asset = self.split_symbol(symbol)
@@ -534,23 +502,26 @@ cdef class StablecoinswapMarket(MarketBase):
             base_asset_decimals = await base_asset_token.get_decimals()
             quote_asset_decimals = await quote_asset_token.get_decimals()
             current_price = self.get_price(symbol, True) 
-            price_after_fees = current_price * Decimal(1 - self._contract_fees)
-            min_output_amount = int(q_amt * 10 ** quote_asset_decimals)
-            input_amount = int(q_amt / price_after_fees * 10 ** base_asset_decimals)
+            price_including_fees = current_price * Decimal(1 + self._contract_fees)
+            input_amount = int(q_amt * Decimal(f"1e{quote_asset_decimals}") * price_including_fees)
+            min_output_amount = self._stl_cont.token_output_amount_after_fees(
+                    input_amount, quote_asset_token.address,
+                    base_asset_token.address)
 
-            print(current_price, q_amt, input_amount, min_output_amount, price_after_fees)
+            print(current_price, q_amt, input_amount, min_output_amount, price_including_fees)
 
             tx_hash = self._wallet.execute_transaction(
                     self._stl_cont._contract.functions.swapTokens(
-                        base_asset_token.address, quote_asset_token.address,
-                        input_amount, min_output_amount, (self._current_timestamp + 60 * 60))
+                        quote_asset_token.address, base_asset_token.address,
+                        input_amount, min_output_amount, int(self._current_timestamp + 60 * 60))
                     )
 
+            print(tx_hash)
             self.logger().info(tx_hash)
 
             self.c_start_tracking_order(order_id, symbol, TradeType.BUY,
-                    order_type, q_amt, s_decimal_0, tx_hash, quote_asset,
-                    self._contract_fees)
+                    order_type, q_amt, s_decimal_0, tx_hash, base_asset,
+                    float(self._contract_fees))
 
             self.logger().info(f"Created market buy order for {q_amt} {symbol}.")
             self.c_trigger_event(self.MARKET_BUY_ORDER_CREATED_EVENT_TAG,
@@ -582,9 +553,8 @@ cdef class StablecoinswapMarket(MarketBase):
                     object price = s_decimal_0,
                     dict kwargs = {}):
 
-        # only market order can be implemented
         if order_type is not OrderType.MARKET:
-            raise NotImplementedError
+            raise NotImplementedError("Only market order can implemented")
 
         cdef:
             int64_t tracking_nonce = <int64_t>(time.time() * 1e6)
@@ -601,13 +571,13 @@ cdef class StablecoinswapMarket(MarketBase):
                            price: Decimal) -> str:
 
         if order_type is not OrderType.MARKET:
-            raise NotImplementedError("Only market order implemented")
+            raise NotImplementedError("Only market order can implemented")
 
         cdef:
             object q_amt = self.c_quantize_order_amount(symbol, amount)
 
-        if q_amt < 0:
-            raise ValueError("Order amount is lower than 0")
+        if q_amt <= 0:
+            raise ValueError("Order amount is lower than or equal to 0")
 
         try:
             base_asset, quote_asset = self.split_symbol(symbol)
@@ -615,22 +585,22 @@ cdef class StablecoinswapMarket(MarketBase):
             quote_asset_token = self._stl_cont.get_token(quote_asset)
             base_asset_decimals = await base_asset_token.get_decimals()
             quote_asset_decimals = await quote_asset_token.get_decimals()
-            current_price = self.get_price(symbol, False) 
-            price_after_fees = current_price * Decimal(1 - self._contract_fees)
-            min_output_amount = int(q_amt * 10 ** base_asset_decimals)
-            input_amount = int(q_amt / price_after_fees * 10 ** quote_asset_decimals)
+            input_amount = int(q_amt * 10 ** base_asset_decimals)
+            min_output_amount = self._stl_cont.token_output_amount_after_fees(
+                    input_amount, base_asset_token.address,
+                    quote_asset_token.address)
 
-            print(current_price, q_amt, input_amount, min_output_amount, price_after_fees)
+            print(q_amt, input_amount, min_output_amount)
 
             tx_hash = self._wallet.execute_transaction(
                     self._stl_cont._contract.functions.swapTokens(
-                        quote_asset_token.address, base_asset_token.address,
-                        input_amount, min_output_amount, (self._current_timestamp + 60 * 60))
+                        base_asset_token.address, quote_asset_token.address,
+                        input_amount, min_output_amount, int(self._current_timestamp + 60 * 60))
                     )
 
             self.c_start_tracking_order(order_id, symbol, TradeType.SELL,
-                    order_type, q_amt, s_decimal_0, tx_hash, base_asset,
-                    self._contract_fees)
+                    order_type, q_amt, s_decimal_0, tx_hash, quote_asset,
+                    float(self._contract_fees))
 
             self.logger().info(f"Created market sell order for {q_amt} {symbol}.")
             self.c_trigger_event(self.MARKET_SELL_ORDER_CREATED_EVENT_TAG,

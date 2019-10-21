@@ -64,8 +64,8 @@ class StablecoinswapAPIOrderBookDataSource(OrderBookTrackerDataSource):
         base_asset, quote_asset = StablecoinswapMarket. \
                 split_symbol(trading_pair)
 
-        exchange_rate = await self._stl_cont.get_exchange_rate(quote_asset,
-                base_asset)
+        exchange_rate = await self._stl_cont.get_exchange_rate(base_asset,
+                quote_asset)
 
         base_asset_token = self._stl_cont.get_token(base_asset)
         quote_asset_token = self._stl_cont.get_token(quote_asset)
@@ -80,12 +80,12 @@ class StablecoinswapAPIOrderBookDataSource(OrderBookTrackerDataSource):
 
         snapshot: Dict[str, Any] = {
                 "bids": [[
-                    exchange_rate["buy"],
-                    quote_asset_balance,
+                    exchange_rate,
+                    quote_asset_balance / float(exchange_rate)
                     ]],
                 "asks": [[
-                    exchange_rate["sell"],
-                    base_asset_balance,
+                    exchange_rate,
+                    base_asset_balance
                     ]],
                 }
 

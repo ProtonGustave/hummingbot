@@ -140,7 +140,7 @@ class Stablecoinswap:
         return self._contract.functions.tokenOutputAmountAfterFees(
                 input_token_amount, input_token, output_token).call()
 
-    async def get_exchange_rate(self, quote_token_name, base_token_name) -> Dict[str, Decimal]:
+    async def get_exchange_rate(self, base_token_name, quote_token_name) -> Decimal:
         """Return exchange rate(buy/sell) before fees."""
         quote_token = self.get_token(quote_token_name)
         base_token = self.get_token(base_token_name)
@@ -152,10 +152,7 @@ class Stablecoinswap:
         base_token_price = self._oracle_contract.normalized_token_price(
                 base_token.address) / Decimal(10 ** (18 - base_token_decimals))
 
-        return {
-                "buy": base_token_price / quote_token_price,
-                "sell": quote_token_price / base_token_price
-                }
+        return base_token_price / quote_token_price
 
     def _get_trade_fee(self) -> Decimal:
         return self._contract.functions.fees('tradeFee').call()

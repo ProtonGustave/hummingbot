@@ -15,7 +15,7 @@ cdef class StablecoinswapMarket(MarketBase):
         double _last_update_asset_info_timestamp
         double _poll_interval
         object _contract_fees
-        dict _assets_info
+        dict _assets_decimals
         dict _in_flight_orders
         TransactionTracker _tx_tracker
         object _w3
