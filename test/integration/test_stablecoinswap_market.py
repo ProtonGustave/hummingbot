@@ -146,16 +146,16 @@ class StablecoinswapMarketUnitTest(unittest.TestCase):
     def run_parallel(self, *tasks):
         return self.ev_loop.run_until_complete(self.run_parallel_async(*tasks))
 
-    # def test_get_fee(self):
-    #     taker_buy_trade_fee: TradeFee = self.market.get_fee("DAI", "USDC", OrderType.MARKET, TradeType.BUY, Decimal(20))
-    #     self.assertEqual(taker_buy_trade_fee.percent, Decimal('0.001'))
-    #     self.assertEqual(len(taker_buy_trade_fee.flat_fees), 1)
-    #     self.assertEqual(taker_buy_trade_fee.flat_fees[0][0], "ETH")
-    #
-    # def test_get_wallet_balances(self):
-    #     balances = self.market.get_all_balances()
-    #     self.assertGreaterEqual((balances["DAI"]), s_decimal_0)
-    #     self.assertGreaterEqual((balances["USDC"]), s_decimal_0)
+    def test_get_fee(self):
+        taker_buy_trade_fee: TradeFee = self.market.get_fee("DAI", "USDC", OrderType.MARKET, TradeType.BUY, Decimal(20))
+        self.assertEqual(taker_buy_trade_fee.percent, Decimal('0.001'))
+        self.assertEqual(len(taker_buy_trade_fee.flat_fees), 1)
+        self.assertEqual(taker_buy_trade_fee.flat_fees[0][0], "ETH")
+
+    def test_get_wallet_balances(self):
+        balances = self.market.get_all_balances()
+        self.assertGreaterEqual((balances["DAI"]), s_decimal_0)
+        self.assertGreaterEqual((balances["USDC"]), s_decimal_0)
 
     def test_market_buy(self):
         amount: Decimal = Decimal(2)

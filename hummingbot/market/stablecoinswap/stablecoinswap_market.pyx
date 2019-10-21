@@ -149,7 +149,7 @@ cdef class StablecoinswapMarket(MarketBase):
     def status_dict(self) -> Dict[str, bool]:
         return {
             "order_books_initialized": self._order_book_tracker.ready,
-            "account_balance": len(self._account_balances) > 0 if self._trading_required else True,
+            "account_balance": len(self._account_balances) > 2 if self._trading_required else True,
             "token_approval": len(self._pending_approval_tx_hashes) == 0 if self._trading_required else True,
             "contract_fees": self._contract_fees != None,
             "asset_decimals": len(self._assets_decimals) > 0

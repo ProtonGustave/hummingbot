@@ -19,7 +19,7 @@ from hummingbot.core.data_type.order_book_tracker_data_source import OrderBookTr
 from hummingbot.core.data_type.order_book_tracker_entry import OrderBookTrackerEntry
 from hummingbot.logger import HummingbotLogger
 from hummingbot.market.stablecoinswap.stablecoinswap_order_book import StablecoinswapOrderBook
-from hummingbot.market.stablecoinswap.stablecoinswap_market import StablecoinswapMarket
+from hummingbot.market.market_base import MarketBase
 import hummingbot.market.stablecoinswap.stablecoinswap_contracts as stablecoinswap_contracts
 
 class StablecoinswapAPIOrderBookDataSource(OrderBookTrackerDataSource):
@@ -61,7 +61,7 @@ class StablecoinswapAPIOrderBookDataSource(OrderBookTrackerDataSource):
         return self._symbols
 
     async def get_snapshot(self, trading_pair: str) -> Dict[str, Any]:
-        base_asset, quote_asset = StablecoinswapMarket. \
+        base_asset, quote_asset = MarketBase. \
                 split_symbol(trading_pair)
 
         exchange_rate = await self._stl_cont.get_exchange_rate(base_asset,
