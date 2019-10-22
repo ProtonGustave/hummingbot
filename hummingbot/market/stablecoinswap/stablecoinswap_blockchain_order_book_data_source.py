@@ -22,7 +22,7 @@ from hummingbot.market.stablecoinswap.stablecoinswap_order_book import Stablecoi
 from hummingbot.market.market_base import MarketBase
 import hummingbot.market.stablecoinswap.stablecoinswap_contracts as stablecoinswap_contracts
 
-class StablecoinswapAPIOrderBookDataSource(OrderBookTrackerDataSource):
+class StablecoinswapBlockchainOrderBookDataSource(OrderBookTrackerDataSource):
 
     MESSAGE_TIMEOUT = 30.0
     PING_TIMEOUT = 10.0
@@ -42,7 +42,6 @@ class StablecoinswapAPIOrderBookDataSource(OrderBookTrackerDataSource):
         self._symbols: Optional[List[str]] = symbols
         self._stl_cont = stl_contract
 
-    # TODO
     async def get_active_exchange_markets(cls) -> pd.DataFrame:
         pass
 
@@ -88,8 +87,6 @@ class StablecoinswapAPIOrderBookDataSource(OrderBookTrackerDataSource):
                     base_asset_balance
                     ]],
                 }
-
-        print(snapshot)
 
         return snapshot
 

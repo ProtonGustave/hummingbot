@@ -358,20 +358,16 @@ cdef class StablecoinswapMarket(MarketBase):
                     base_asset_decimals = await base_asset_token.get_decimals()
                     quote_asset_decimals = await quote_asset_token.get_decimals()
 
-                    print(tracked_market_order.tx_hash)
-
                     if tracked_market_order.trade_type is TradeType.BUY:
                         # retrieve executed amount from blockchain logs
-                        tracked_market_order.executed_amount_base = Web3.toInt(
-                                hexstr=receipt.logs[0].data) / Decimal(f"1e{quote_asset_decimals}")
                         tracked_market_order.executed_amount_quote = Web3.toInt(
+                                hexstr=receipt.logs[0].data) / Decimal(f"1e{quote_asset_decimals}")
+                        tracked_market_order.executed_amount_base = Web3.toInt(
                                 hexstr=receipt.logs[1].data) / Decimal(f"1e{base_asset_decimals}")
 
-                        print(tracked_market_order.executed_amount_quote, tracked_market_order.executed_amount_base)
-
-                        # calclate fees
+                        # calculate fees
                         tracked_market_order.fee_paid = tracked_market_order. \
-                                executed_amount_quote * Decimal(tracked_market_order.fee_percent)
+                                executed_amount_base * Decimal(tracked_market_order.fee_percent)
 
                         self.logger().info(f"The market buy order "
                                            f"{tracked_market_order.client_order_id} has completed according to "
@@ -389,12 +385,13 @@ cdef class StablecoinswapMarket(MarketBase):
                     else:
                         # retrieve executed amount from blockchain logs
                         tracked_market_order.executed_amount_base = Web3.toInt(
-                                hexstr=receipt.logs[1].data) / Decimal(f"1e{base_asset_decimals}")
+                                hexstr=receipt.logs[0].data) / Decimal(f"1e{base_asset_decimals}")
                         tracked_market_order.executed_amount_quote = Web3.toInt(
-                                hexstr=receipt.logs[0].data) / Decimal(f"1e{quote_asset_decimals}")
+                                hexstr=receipt.logs[1].data) / Decimal(f"1e{quote_asset_decimals}")
 
+                        # calculate fees
                         tracked_market_order.fee_paid = tracked_market_order. \
-                                executed_amount_base * Decimal(tracked_market_order.fee_percent)
+                                executed_amount_quote * Decimal(tracked_market_order.fee_percent)
 
                         self.logger().info(f"The market sell order "
                                            f"{tracked_market_order.client_order_id} has completed according to "
@@ -405,9 +402,9 @@ cdef class StablecoinswapMarket(MarketBase):
                                                                      tracked_market_order.base_asset,
                                                                      tracked_market_order.quote_asset,
                                                                      tracked_market_order.fee_asset,
-                                                                     float(tracked_market_order.executed_amount_base),
-                                                                     float(tracked_market_order.executed_amount_quote),
-                                                                     float(tracked_market_order.fee_paid),
+                                                                     tracked_market_order.executed_amount_base,
+                                                                     tracked_market_order.executed_amount_quote,
+                                                                     tracked_market_order.fee_paid,
                                                                      OrderType.MARKET))
                 else:
                     err_msg = (f"Unrecognized transaction status for market order "
@@ -468,7 +465,6 @@ cdef class StablecoinswapMarket(MarketBase):
                    object price = s_decimal_0,
                    dict kwargs = {}):
 
-        # only market order can be implemented
         if order_type is not OrderType.MARKET:
             raise NotImplementedError("Only market order can implemented")
 
@@ -485,7 +481,6 @@ cdef class StablecoinswapMarket(MarketBase):
                           amount: Decimal,
                           order_type: OrderType,
                           price: Decimal) -> str:
-        # only market order can be implemented
         if order_type is not OrderType.MARKET:
             raise NotImplementedError("Only market order can implemented")
 
@@ -508,16 +503,11 @@ cdef class StablecoinswapMarket(MarketBase):
                     input_amount, quote_asset_token.address,
                     base_asset_token.address)
 
-            print(current_price, q_amt, input_amount, min_output_amount, price_including_fees)
-
             tx_hash = self._wallet.execute_transaction(
                     self._stl_cont._contract.functions.swapTokens(
                         quote_asset_token.address, base_asset_token.address,
                         input_amount, min_output_amount, int(self._current_timestamp + 60 * 60))
                     )
-
-            print(tx_hash)
-            self.logger().info(tx_hash)
 
             self.c_start_tracking_order(order_id, symbol, TradeType.BUY,
                     order_type, q_amt, s_decimal_0, tx_hash, base_asset,
@@ -589,8 +579,6 @@ cdef class StablecoinswapMarket(MarketBase):
             min_output_amount = self._stl_cont.token_output_amount_after_fees(
                     input_amount, base_asset_token.address,
                     quote_asset_token.address)
-
-            print(q_amt, input_amount, min_output_amount)
 
             tx_hash = self._wallet.execute_transaction(
                     self._stl_cont._contract.functions.swapTokens(

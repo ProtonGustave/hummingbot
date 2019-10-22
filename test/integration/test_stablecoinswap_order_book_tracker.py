@@ -51,7 +51,7 @@ class StablecoinswapOrderBookTrackerUnitTest(unittest.TestCase):
         cls.stl_contract = stablecoinswap_contracts.Stablecoinswap(w3, cls.oracle_cont)
         cls.order_book_tracker: StablecoinswapOrderBookTracker = StablecoinswapOrderBookTracker(
             stl_contract = cls.stl_contract,
-            data_source_type=OrderBookTrackerDataSourceType.EXCHANGE_API,
+            data_source_type=OrderBookTrackerDataSourceType.BLOCKCHAIN,
             symbols=cls.trading_pairs
         )
         cls.order_book_tracker_task: asyncio.Task = safe_ensure_future(cls.order_book_tracker.start())

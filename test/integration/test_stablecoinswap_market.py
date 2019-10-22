@@ -114,7 +114,6 @@ class StablecoinswapMarketUnitTest(unittest.TestCase):
             if cls.market.ready:
                 break
             else:
-                print(cls.market.status_dict)
                 await cls._clock.run_til(next_iteration)
             await asyncio.sleep(1.0)
 
@@ -157,33 +156,9 @@ class StablecoinswapMarketUnitTest(unittest.TestCase):
         self.assertGreaterEqual((balances["DAI"]), s_decimal_0)
         self.assertGreaterEqual((balances["USDC"]), s_decimal_0)
 
-    def test_market_buy(self):
-        amount: Decimal = Decimal(2)
-        quantized_amount: Decimal = self.market.quantize_order_amount("DAI-USDC", amount)
-        order_size_quantum: Decimal = self.market.get_order_size_quantum("DAI-USDC", amount)
-        print(quantized_amount, order_size_quantum)
-        order_id = self.market.buy("DAI-USDC", amount, OrderType.MARKET)
-
-        [order_completed_event] = self.run_parallel(self.market_logger.wait_for(BuyOrderCompletedEvent))
-        order_completed_event: BuyOrderCompletedEvent = order_completed_event
-        order_filled_events: List[OrderFilledEvent] = [t for t in self.market_logger.event_log
-                                                       if isinstance(t, OrderFilledEvent)]
-
-        print(order_completed_event)
-        self.assertTrue([evt.order_type == OrderType.MARKET for evt in order_filled_events])
-        self.assertEqual(order_id, order_completed_event.order_id)
-        self.assertEqual(quantized_amount,
-                order_completed_event.base_asset_amount.quantize(
-                    Decimal(str(order_size_quantum * 10))))
-        self.assertEqual("DAI", order_completed_event.base_asset)
-        self.assertEqual("USDC", order_completed_event.quote_asset)
-        self.market_logger.clear()
-
     def test_market_sell(self):
-        amount: Decimal = Decimal(2)
+        amount: Decimal = Decimal("2.53")
         quantized_amount: Decimal = self.market.quantize_order_amount("DAI-USDC", amount)
-        order_size_quantum: Decimal = self.market.get_order_size_quantum("DAI-USDC", amount)
-        print(quantized_amount, order_size_quantum)
         order_id = self.market.sell("DAI-USDC", amount, OrderType.MARKET)
 
         [order_completed_event] = self.run_parallel(self.market_logger.wait_for(SellOrderCompletedEvent))
@@ -191,18 +166,33 @@ class StablecoinswapMarketUnitTest(unittest.TestCase):
         order_filled_events: List[OrderFilledEvent] = [t for t in self.market_logger.event_log
                                                        if isinstance(t, OrderFilledEvent)]
 
-        print(order_completed_event)
         self.assertTrue([evt.order_type == OrderType.MARKET for evt in order_filled_events])
         self.assertEqual(order_id, order_completed_event.order_id)
-        self.assertEqual(quantized_amount,
+        self.assertEqual(quantized_amount, order_completed_event.base_asset_amount)
+        self.assertEqual("DAI", order_completed_event.base_asset)
+        self.assertEqual("USDC", order_completed_event.quote_asset)
+        self.market_logger.clear()
+
+    def test_market_buy(self):
+        amount: Decimal = Decimal("2.5354")
+        quantized_amount: Decimal = self.market.quantize_order_amount("DAI-USDC", amount)
+        order_id = self.market.buy("DAI-USDC", amount, OrderType.MARKET)
+
+        [order_completed_event] = self.run_parallel(self.market_logger.wait_for(BuyOrderCompletedEvent))
+        order_completed_event: BuyOrderCompletedEvent = order_completed_event
+        order_filled_events: List[OrderFilledEvent] = [t for t in self.market_logger.event_log
+                                                       if isinstance(t, OrderFilledEvent)]
+
+        self.assertTrue([evt.order_type == OrderType.MARKET for evt in order_filled_events])
+        self.assertEqual(order_id, order_completed_event.order_id)
+        self.assertEqual(quantized_amount.quantize(Decimal("0.001")),
                 order_completed_event.base_asset_amount.quantize(
-                    Decimal(str(order_size_quantum * 10))))
+                    Decimal("0.001")))
         self.assertEqual("DAI", order_completed_event.base_asset)
         self.assertEqual("USDC", order_completed_event.quote_asset)
         self.market_logger.clear()
 
     def test_order_fill_record(self):
-        # TODO
         config_path: str = "test_config"
         strategy_name: str = "test_strategy"
         symbol: str = "DAI-USDC"

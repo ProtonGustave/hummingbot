@@ -47,18 +47,14 @@ cdef class StablecoinswapOrderBook(OrderBook):
                                    msg: Dict[str, any],
                                    timestamp: Optional[float] = None,
                                    metadata: Optional[Dict] = None) -> OrderBookMessage:
-        if metadata:
-            msg.update(metadata)
-        if "time" in msg:
-            msg_time = pd.Timestamp(msg["time"]).timestamp()
-        return StablecoinswapOrderBookMessage(
-            message_type=OrderBookMessageType.DIFF,
-            content=msg,
-            timestamp=timestamp or msg_time)
+        raise NotImplementedError("Stablecoinswap does not support diff messages")
 
     @classmethod
     def snapshot_message_from_db(cls, record: RowProxy, metadata: Optional[Dict] = None) -> OrderBookMessage:
         msg = record.json if type(record.json)==dict else ujson.loads(record.json)
+
+        if metadata:
+            msg.update(metadata)
         return StablecoinswapOrderBookMessage(
             message_type=OrderBookMessageType.SNAPSHOT,
             content=msg,
@@ -67,19 +63,11 @@ cdef class StablecoinswapOrderBook(OrderBook):
 
     @classmethod
     def diff_message_from_db(cls, record: RowProxy, metadata: Optional[Dict] = None) -> OrderBookMessage:
-        return StablecoinswapOrderBookMessage(
-            message_type=OrderBookMessageType.DIFF,
-            content=record.json,
-            timestamp=record.timestamp * 1e-3
-        )
+        raise NotImplementedError("Stablecoinswap does not support diff messages")
 
     @classmethod
     def trade_receive_message_from_db(cls, record: RowProxy, metadata: Optional[Dict] = None):
-        return StablecoinswapOrderBookMessage(
-            OrderBookMessageType.TRADE,
-            record.json,
-            timestamp=record.timestamp * 1e-3
-        )
+        raise NotImplementedError("Stablecoinswap does not support trade messages")
 
     @classmethod
     def from_snapshot(cls, snapshot: OrderBookMessage):
