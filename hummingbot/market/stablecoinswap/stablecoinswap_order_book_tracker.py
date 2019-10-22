@@ -1,12 +1,10 @@
 #!/usr/bin/env python
 
-import asyncio
 from collections import (
     deque,
     defaultdict
 )
 import logging
-import time
 from typing import (
     Deque,
     Dict,
@@ -14,11 +12,8 @@ from typing import (
     Optional
 )
 
-from web3 import Web3
-from hummingbot.core.data_type.order_book import OrderBook
 from hummingbot.core.data_type.order_book_message import (
     OrderBookMessage,
-    OrderBookMessageType
 )
 from hummingbot.core.data_type.order_book_tracker import (
     OrderBookTracker,
@@ -55,7 +50,7 @@ class StablecoinswapOrderBookTracker(OrderBookTracker):
         if not self._data_source:
             if self._data_source_type is OrderBookTrackerDataSourceType.BLOCKCHAIN:
                 self._data_source = StablecoinswapBlockchainOrderBookDataSource(
-                        symbols=self._symbols, stl_contract=self._stl_contract)
+                    symbols=self._symbols, stl_contract=self._stl_contract)
             else:
                 raise ValueError(f"data_source_type {self._data_source_type} is not supported.")
         return self._data_source

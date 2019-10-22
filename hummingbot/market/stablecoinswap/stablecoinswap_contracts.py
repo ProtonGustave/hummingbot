@@ -98,7 +98,7 @@ class Stablecoinswap:
 
         if token_address not in self._tokens:
             self._tokens[token_address] = ERC20Token(self._w3, token_address,
-                    EthereumChain.MAIN_NET)
+                                                     EthereumChain.MAIN_NET)
 
         return self._tokens[token_address]
 
@@ -133,12 +133,12 @@ class Stablecoinswap:
     def token_exchange_rate_after_fees(self, input_token, output_token) -> int:
         """Return exchange rate after fees."""
         return self._contract.functions.tokenExchangeRateAfterFees(
-                input_token, output_token).call()
+            input_token, output_token).call()
 
     def token_output_amount_after_fees(self, input_token_amount, input_token,
-            output_token) -> int:
+                                       output_token) -> int:
         return self._contract.functions.tokenOutputAmountAfterFees(
-                input_token_amount, input_token, output_token).call()
+            input_token_amount, input_token, output_token).call()
 
     async def get_exchange_rate(self, base_token_name, quote_token_name) -> Decimal:
         """Return exchange rate(buy/sell) before fees."""
@@ -148,9 +148,9 @@ class Stablecoinswap:
         base_token_decimals = await base_token.get_decimals()
 
         quote_token_price = self._oracle_contract.normalized_token_price(
-                quote_token.address) / Decimal(10 ** (18 - quote_token_decimals))
+            quote_token.address) / Decimal(10 ** (18 - quote_token_decimals))
         base_token_price = self._oracle_contract.normalized_token_price(
-                base_token.address) / Decimal(10 ** (18 - base_token_decimals))
+            base_token.address) / Decimal(10 ** (18 - base_token_decimals))
 
         return base_token_price / quote_token_price
 

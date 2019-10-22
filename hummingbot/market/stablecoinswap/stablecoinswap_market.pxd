@@ -38,4 +38,3 @@ cdef class StablecoinswapMarket(MarketBase):
                                 str fee_asset,
                                 object fee_percent)
     cdef c_stop_tracking_order(self, str order_id)
-

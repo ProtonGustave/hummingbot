@@ -98,9 +98,9 @@ cdef class StablecoinswapMarket(MarketBase):
         self._w3 = Web3(Web3.HTTPProvider(ethereum_rpc_url))
         self._oracle_cont = stablecoinswap_contracts.PriceOracle(self._w3)
         self._stl_cont = stablecoinswap_contracts.Stablecoinswap(
-                self._w3, oracle_contract=self._oracle_cont)
+            self._w3, oracle_contract=self._oracle_cont)
         self._order_book_tracker = StablecoinswapOrderBookTracker(
-                stl_contract=self._stl_cont, symbols=symbols)
+            stl_contract=self._stl_cont, symbols=symbols)
         self._last_timestamp = 0
         self._last_update_market_order_timestamp = 0
         self._last_update_fee_timestamp = 0
@@ -151,7 +151,7 @@ cdef class StablecoinswapMarket(MarketBase):
             "order_books_initialized": self._order_book_tracker.ready,
             "account_balance": len(self._account_balances) > 2 if self._trading_required else True,
             "token_approval": len(self._pending_approval_tx_hashes) == 0 if self._trading_required else True,
-            "contract_fees": self._contract_fees != None,
+            "contract_fees": self._contract_fees is not None,
             "asset_decimals": len(self._assets_decimals) > 0
         }
 
@@ -361,13 +361,13 @@ cdef class StablecoinswapMarket(MarketBase):
                     if tracked_market_order.trade_type is TradeType.BUY:
                         # retrieve executed amount from blockchain logs
                         tracked_market_order.executed_amount_quote = Web3.toInt(
-                                hexstr=receipt.logs[0].data) / Decimal(f"1e{quote_asset_decimals}")
+                            hexstr=receipt.logs[0].data) / Decimal(f"1e{quote_asset_decimals}")
                         tracked_market_order.executed_amount_base = Web3.toInt(
-                                hexstr=receipt.logs[1].data) / Decimal(f"1e{base_asset_decimals}")
+                            hexstr=receipt.logs[1].data) / Decimal(f"1e{base_asset_decimals}")
 
                         # calculate fees
                         tracked_market_order.fee_paid = tracked_market_order. \
-                                executed_amount_base * Decimal(tracked_market_order.fee_percent)
+                            executed_amount_base * Decimal(tracked_market_order.fee_percent)
 
                         self.logger().info(f"The market buy order "
                                            f"{tracked_market_order.client_order_id} has completed according to "
@@ -385,13 +385,13 @@ cdef class StablecoinswapMarket(MarketBase):
                     else:
                         # retrieve executed amount from blockchain logs
                         tracked_market_order.executed_amount_base = Web3.toInt(
-                                hexstr=receipt.logs[0].data) / Decimal(f"1e{base_asset_decimals}")
+                            hexstr=receipt.logs[0].data) / Decimal(f"1e{base_asset_decimals}")
                         tracked_market_order.executed_amount_quote = Web3.toInt(
-                                hexstr=receipt.logs[1].data) / Decimal(f"1e{quote_asset_decimals}")
+                            hexstr=receipt.logs[1].data) / Decimal(f"1e{quote_asset_decimals}")
 
                         # calculate fees
                         tracked_market_order.fee_paid = tracked_market_order. \
-                                executed_amount_quote * Decimal(tracked_market_order.fee_percent)
+                            executed_amount_quote * Decimal(tracked_market_order.fee_percent)
 
                         self.logger().info(f"The market sell order "
                                            f"{tracked_market_order.client_order_id} has completed according to "
@@ -435,7 +435,7 @@ cdef class StablecoinswapMarket(MarketBase):
         quote_asset_decimals = self._assets_decimals[quote_asset]
 
         decimals_quantum = Decimal(
-                f"1e-{min(base_asset_decimals, quote_asset_decimals)}")
+            f"1e-{min(base_asset_decimals, quote_asset_decimals)}")
         return decimals_quantum
 
     cdef object c_get_order_size_quantum(self, str symbol, object amount):
@@ -444,7 +444,7 @@ cdef class StablecoinswapMarket(MarketBase):
         quote_asset_decimals = self._assets_decimals[quote_asset]
 
         decimals_quantum = Decimal(
-                f"1e-{min(base_asset_decimals, quote_asset_decimals)}")
+            f"1e-{min(base_asset_decimals, quote_asset_decimals)}")
         return decimals_quantum
 
     cdef object c_quantize_order_amount(self, str symbol, object amount, object price = s_decimal_0):
@@ -496,22 +496,22 @@ cdef class StablecoinswapMarket(MarketBase):
             quote_asset_token = self._stl_cont.get_token(quote_asset)
             base_asset_decimals = await base_asset_token.get_decimals()
             quote_asset_decimals = await quote_asset_token.get_decimals()
-            current_price = self.get_price(symbol, True) 
+            current_price = self.get_price(symbol, True)
             price_including_fees = current_price * Decimal(1 + self._contract_fees)
             input_amount = int(q_amt * Decimal(f"1e{quote_asset_decimals}") * price_including_fees)
             min_output_amount = self._stl_cont.token_output_amount_after_fees(
-                    input_amount, quote_asset_token.address,
-                    base_asset_token.address)
+                input_amount, quote_asset_token.address,
+                base_asset_token.address)
 
             tx_hash = self._wallet.execute_transaction(
-                    self._stl_cont._contract.functions.swapTokens(
-                        quote_asset_token.address, base_asset_token.address,
-                        input_amount, min_output_amount, int(self._current_timestamp + 60 * 60))
-                    )
+                self._stl_cont._contract.functions.swapTokens(
+                    quote_asset_token.address, base_asset_token.address,
+                    input_amount, min_output_amount, int(self._current_timestamp + 60 * 60))
+            )
 
             self.c_start_tracking_order(order_id, symbol, TradeType.BUY,
-                    order_type, q_amt, s_decimal_0, tx_hash, base_asset,
-                    float(self._contract_fees))
+                                        order_type, q_amt, s_decimal_0, tx_hash, base_asset,
+                                        float(self._contract_fees))
 
             self.logger().info(f"Created market buy order for {q_amt} {symbol}.")
             self.c_trigger_event(self.MARKET_BUY_ORDER_CREATED_EVENT_TAG,
@@ -577,18 +577,18 @@ cdef class StablecoinswapMarket(MarketBase):
             quote_asset_decimals = await quote_asset_token.get_decimals()
             input_amount = int(q_amt * 10 ** base_asset_decimals)
             min_output_amount = self._stl_cont.token_output_amount_after_fees(
-                    input_amount, base_asset_token.address,
-                    quote_asset_token.address)
+                input_amount, base_asset_token.address,
+                quote_asset_token.address)
 
             tx_hash = self._wallet.execute_transaction(
-                    self._stl_cont._contract.functions.swapTokens(
-                        base_asset_token.address, quote_asset_token.address,
-                        input_amount, min_output_amount, int(self._current_timestamp + 60 * 60))
-                    )
+                self._stl_cont._contract.functions.swapTokens(
+                    base_asset_token.address, quote_asset_token.address,
+                    input_amount, min_output_amount, int(self._current_timestamp + 60 * 60))
+            )
 
             self.c_start_tracking_order(order_id, symbol, TradeType.SELL,
-                    order_type, q_amt, s_decimal_0, tx_hash, quote_asset,
-                    float(self._contract_fees))
+                                        order_type, q_amt, s_decimal_0, tx_hash, quote_asset,
+                                        float(self._contract_fees))
 
             self.logger().info(f"Created market sell order for {q_amt} {symbol}.")
             self.c_trigger_event(self.MARKET_SELL_ORDER_CREATED_EVENT_TAG,
