@@ -1,36 +1,30 @@
-#!/usr/bin/env python
-import math
-import time
-from os.path import join, realpath
-import sys
-sys.path.insert(0, realpath(join(__file__, "../../../")))
-
-import conf
 from hummingbot.core.event.event_logger import EventLogger
-from hummingbot.core.event.events import (
-    OrderBookEvent,
-    OrderBookTradeEvent,
-    TradeType
-)
-import asyncio
-import logging
-import unittest
 from typing import (
     Dict,
     Optional,
     List
 )
-from hummingbot.market.stablecoinswap.stablecoinswap_order_book_tracker import StablecoinswapOrderBookTracker
-import hummingbot.market.stablecoinswap.stablecoinswap_contracts as stablecoinswap_contracts
-from hummingbot.core.data_type.order_book import OrderBook
+from hummingbot.core.event.events import (
+    OrderBookEvent,
+)
 from hummingbot.core.data_type.order_book_tracker import (
     OrderBookTrackerDataSourceType
 )
-from web3 import Web3, HTTPProvider
 from hummingbot.core.utils.async_utils import (
     safe_ensure_future,
     safe_gather,
 )
+from hummingbot.market.stablecoinswap.stablecoinswap_order_book_tracker import StablecoinswapOrderBookTracker
+from hummingbot.core.data_type.order_book import OrderBook
+from web3 import Web3, HTTPProvider
+import sys
+import conf
+import asyncio
+import logging
+import unittest
+import hummingbot.market.stablecoinswap.stablecoinswap_contracts as stablecoinswap_contracts
+from os.path import join, realpath
+sys.path.insert(0, realpath(join(__file__, "../../../")))
 
 
 class StablecoinswapOrderBookTrackerUnitTest(unittest.TestCase):
@@ -46,7 +40,7 @@ class StablecoinswapOrderBookTrackerUnitTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.ev_loop: asyncio.BaseEventLoop = asyncio.get_event_loop()
-        cls.w3 =  w3 = Web3(HTTPProvider(conf.test_web3_provider_list[0]))
+        cls.w3 = w3 = Web3(HTTPProvider(conf.test_web3_provider_list[0]))
         cls.oracle_cont = stablecoinswap_contracts.PriceOracle(w3)
         cls.stl_contract = stablecoinswap_contracts.Stablecoinswap(w3, cls.oracle_cont)
         cls.order_book_tracker: StablecoinswapOrderBookTracker = StablecoinswapOrderBookTracker(
@@ -60,7 +54,7 @@ class StablecoinswapOrderBookTrackerUnitTest(unittest.TestCase):
     @classmethod
     async def wait_til_tracker_ready(cls):
         while True:
-            if len(cls.order_book_tracker.order_books) > 0:
+            if len(cls.order_book_tracker.order_books) > 2:
                 print("Initialized real-time order books.")
                 return
             await asyncio.sleep(1)
@@ -72,8 +66,6 @@ class StablecoinswapOrderBookTrackerUnitTest(unittest.TestCase):
             if timeout and timer > timeout:
                 raise Exception("Time out running parallel async task in tests.")
             timer += 1
-            now = time.time()
-            next_iteration = now // 1.0 + 1
             await asyncio.sleep(1.0)
         return future.result()
 
@@ -100,6 +92,7 @@ class StablecoinswapOrderBookTrackerUnitTest(unittest.TestCase):
         self.assertLessEqual(dai_tusd_book.get_price_for_volume(False, 1).result_price,
                              dai_tusd_book.get_price(False))
 
+
 def main():
     logging.basicConfig(level=logging.INFO)
     unittest.main()
@@ -107,4 +100,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

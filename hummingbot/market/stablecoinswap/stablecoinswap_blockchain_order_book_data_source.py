@@ -112,7 +112,8 @@ class StablecoinswapBlockchainOrderBookDataSource(OrderBookTrackerDataSource):
             except Exception:
                 self.logger().error(f"Error getting snapshot for {trading_pair}. ", exc_info=True)
                 await asyncio.sleep(5)
-            return retval
+
+        return retval
 
     async def listen_for_order_book_snapshots(self, ev_loop: asyncio.BaseEventLoop, output: asyncio.Queue):
         while True:
