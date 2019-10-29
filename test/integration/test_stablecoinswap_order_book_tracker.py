@@ -81,16 +81,16 @@ class StablecoinswapOrderBookTrackerUnitTest(unittest.TestCase):
     def test_tracker_integrity(self):
         self.ev_loop.run_until_complete(asyncio.sleep(5.0))
         order_books: Dict[str, OrderBook] = self.order_book_tracker.order_books
-        dai_usdc_book: OrderBook = order_books["DAI-USDC"]
+        # dai_usdc_book: OrderBook = order_books["DAI-USDC"]
         dai_tusd_book: OrderBook = order_books["DAI-TUSD"]
-        self.assertGreaterEqual(dai_usdc_book.get_price_for_volume(True, 10).result_price,
-                                dai_usdc_book.get_price(True))
-        self.assertLessEqual(dai_usdc_book.get_price_for_volume(False, 10).result_price,
-                             dai_usdc_book.get_price(False))
-        self.assertGreaterEqual(dai_tusd_book.get_price_for_volume(True, 10).result_price,
-                                dai_tusd_book.get_price(True))
-        self.assertLessEqual(dai_tusd_book.get_price_for_volume(False, 1).result_price,
-                             dai_tusd_book.get_price(False))
+        # self.assertEqual(dai_usdc_book.get_price_for_volume(True, 10).result_price,
+        #                         dai_usdc_book.get_price(True))
+        # self.assertEqual(dai_usdc_book.get_price_for_volume(False, 10).result_price,
+        #                      dai_usdc_book.get_price(False))
+        self.assertEqual(dai_tusd_book.get_price_for_volume(True, 10).result_price,
+                         dai_tusd_book.get_price(True))
+        self.assertEqual(dai_tusd_book.get_price_for_volume(False, 10).result_price,
+                         dai_tusd_book.get_price(False))
 
 
 def main():
