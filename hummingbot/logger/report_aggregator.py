@@ -17,6 +17,7 @@ from hummingbot.market.huobi.huobi_market import HuobiMarket
 from hummingbot.market.idex.idex_market import IDEXMarket
 from hummingbot.market.radar_relay.radar_relay_market import RadarRelayMarket
 from hummingbot.market.stablecoinswap.stablecoinswap_market import StablecoinswapMarket
+from hummingbot.market.dolomite.dolomite_market import DolomiteMarket
 
 MARKETS = {
     "ddex": DDEXMarket,
@@ -25,6 +26,7 @@ MARKETS = {
     "bamboo_relay": BambooRelayMarket,
     "radar_relay": RadarRelayMarket,
     "idex": IDEXMarket,
+    "dolomite": DolomiteMarket,
     "huobi": HuobiMarket,
     "stablecoinswap": StablecoinswapMarket,
     "bittrex": BittrexMarket
